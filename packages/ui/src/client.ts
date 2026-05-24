@@ -499,7 +499,7 @@ export const CLIENT_SCRIPT = String.raw`
     if (targetBaseUrl) {
       html += '    <code>' + escapeHtml(targetBaseUrl) + '</code>';
     } else {
-      html += '    <code>Set --app-url or document.servers[0].url</code>';
+      html += '    <code>Set --app-url, document.servers[0].url, or app.listen(...)</code>';
     }
     html += '  </div>';
 
@@ -611,7 +611,7 @@ export const CLIENT_SCRIPT = String.raw`
         statusText: "Target Missing",
         data: {
           error: "No Try It target is configured.",
-          hint: "For standalone specord serve, start with --app-url or add document.servers[0].url."
+          hint: "For standalone specord serve, start with --app-url, add document.servers[0].url, or expose a static app.listen(...) port."
         }
       };
       state.tryItLatency = 0;

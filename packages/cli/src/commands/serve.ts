@@ -4,6 +4,7 @@
 
 import { spawn as nodeSpawn, execSync } from "node:child_process";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
+import fs from "node:fs";
 import http from "node:http";
 import type { IncomingMessage, RequestListener, ServerResponse } from "node:http";
 import path from "node:path";
@@ -63,6 +64,7 @@ export function createDocsRequestHandler(
   const jsonPath = normalizePath(flags.jsonPath ?? joinPath(docsPath, "openapi.json"));
   const historyPath = normalizePath(joinPath(docsPath, "history"));
   const getOpenApiDocument = createCachedDocumentBuilder(flags, cwd);
+  const getTryItAppUrl = createTryItAppUrlResolver(flags, cwd);
 
   return (request, response) => {
     void handleDocsRequest(
@@ -73,6 +75,7 @@ export function createDocsRequestHandler(
       jsonPath,
       historyPath,
       getOpenApiDocument,
+      getTryItAppUrl,
       cwd,
     );
   };
@@ -152,6 +155,7 @@ async function handleDocsRequest(
   jsonPath: string,
   historyPath: string,
   getOpenApiDocument: () => Promise<Record<string, unknown>>,
+  getTryItAppUrl: () => Promise<string | undefined>,
   cwd: string,
 ): Promise<void> {
   if (request.method !== "GET") {
@@ -172,12 +176,13 @@ async function handleDocsRequest(
     }
 
     if (samePath(url.pathname, docsPath)) {
+      const appUrl = await getTryItAppUrl();
       sendHtml(
         response,
         renderDocsUi({
           title: "Specord API Docs",
           openApiUrl: jsonPath,
-          appUrl: flags.appUrl,
+          appUrl,
           historyUrl: historyPath,
           sameOriginTryIt: false,
         }),
@@ -455,6 +460,285 @@ async function buildOpenApiDocument(
   }
 
   return document;
+}
+
+function createTryItAppUrlResolver(
+  flags: ServeFlags,
+  cwd: string,
+): () => Promise<string | undefined> {
+  let cached: Promise<string | undefined> | undefined;
+
+  return () => {
+    cached ??= resolveServeTryItAppUrl(flags, cwd).catch(() => undefined);
+    return cached;
+  };
+}
+
+export async function resolveServeTryItAppUrl(
+  flags: ServeFlags,
+  cwd: string,
+): Promise<string | undefined> {
+  const explicitAppUrl = normalizeAppUrl(flags.appUrl);
+  if (explicitAppUrl) {
+    return explicitAppUrl;
+  }
+
+  const fileConfig = await loadConfig(cwd);
+  const configuredServerUrl = firstConfiguredServerUrl(fileConfig);
+  if (configuredServerUrl) {
+    return configuredServerUrl;
+  }
+
+  const resolvedConfig = resolveConfig(flags, fileConfig, { cwd });
+  return inferTryItAppUrlFromSourceRoot(resolvedConfig.root);
+}
+
+function firstConfiguredServerUrl(
+  config: Awaited<ReturnType<typeof loadConfig>>,
+): string | undefined {
+  for (const server of config?.document?.servers ?? []) {
+    const normalized = normalizeAppUrl(server.url);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return undefined;
+}
+
+function inferTryItAppUrlFromSourceRoot(root: string): string | undefined {
+  const mainPath = path.join(root, "main.ts");
+  if (!fs.existsSync(mainPath)) {
+    return undefined;
+  }
+
+  const source = fs.readFileSync(mainPath, "utf8");
+  const listenArguments = findListenArguments(source);
+
+  for (const args of listenArguments) {
+    const port = inferPort(args[0], source);
+    if (!port) continue;
+
+    const host = inferHost(args[1], source) ?? "localhost";
+    return `http://${formatHostForUrl(normalizeAppHost(host))}:${port}`;
+  }
+
+  return undefined;
+}
+
+function findListenArguments(source: string): string[][] {
+  const results: string[][] = [];
+  let searchIndex = 0;
+
+  while (searchIndex < source.length) {
+    const listenIndex = source.indexOf(".listen", searchIndex);
+    if (listenIndex === -1) break;
+
+    const openIndex = source.indexOf("(", listenIndex + ".listen".length);
+    if (openIndex === -1) break;
+
+    const closeIndex = findMatchingParen(source, openIndex);
+    if (closeIndex === -1) break;
+
+    results.push(splitTopLevelArgs(source.slice(openIndex + 1, closeIndex)));
+    searchIndex = closeIndex + 1;
+  }
+
+  return results;
+}
+
+function findMatchingParen(source: string, openIndex: number): number {
+  let depth = 0;
+  let quote: string | undefined;
+
+  for (let i = openIndex; i < source.length; i++) {
+    const char = source[i];
+    const previous = source[i - 1];
+
+    if (quote) {
+      if (char === quote && previous !== "\\") {
+        quote = undefined;
+      }
+      continue;
+    }
+
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char;
+      continue;
+    }
+
+    if (char === "(") {
+      depth++;
+    } else if (char === ")") {
+      depth--;
+      if (depth === 0) {
+        return i;
+      }
+    }
+  }
+
+  return -1;
+}
+
+function splitTopLevelArgs(value: string): string[] {
+  const args: string[] = [];
+  let start = 0;
+  let depth = 0;
+  let quote: string | undefined;
+
+  for (let i = 0; i < value.length; i++) {
+    const char = value[i];
+    const previous = value[i - 1];
+
+    if (quote) {
+      if (char === quote && previous !== "\\") {
+        quote = undefined;
+      }
+      continue;
+    }
+
+    if (char === "\"" || char === "'" || char === "`") {
+      quote = char;
+      continue;
+    }
+
+    if (char === "(" || char === "[" || char === "{") {
+      depth++;
+    } else if (char === ")" || char === "]" || char === "}") {
+      depth--;
+    } else if (char === "," && depth === 0) {
+      args.push(value.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+
+  const last = value.slice(start).trim();
+  if (last) {
+    args.push(last);
+  }
+
+  return args;
+}
+
+function inferPort(
+  expression: string | undefined,
+  source: string,
+  seen = new Set<string>(),
+): number | undefined {
+  if (!expression) return undefined;
+
+  const envPort = numericEnvValue(expression);
+  if (envPort) return envPort;
+
+  const identifier = expression.trim();
+  if (/^[A-Za-z_$][\w$]*$/.test(identifier) && !seen.has(identifier)) {
+    seen.add(identifier);
+    const initializer = findVariableInitializer(source, identifier);
+    if (initializer) {
+      return inferPort(initializer, source, seen);
+    }
+  }
+
+  const candidates = [...expression.matchAll(/["']?(\d{2,5})["']?/g)]
+    .map((match) => Number(match[1]))
+    .filter((value) => Number.isInteger(value) && value > 0 && value <= 65535);
+
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    if (candidates[i] >= 80) {
+      return candidates[i];
+    }
+  }
+
+  return candidates.length > 0 ? candidates[candidates.length - 1] : undefined;
+}
+
+function numericEnvValue(expression: string): number | undefined {
+  const envNames = [...expression.matchAll(/process\.env\.([A-Za-z_][\w]*)/g)]
+    .map((match) => match[1]);
+
+  for (const envName of envNames) {
+    const value = Number(process.env[envName]);
+    if (Number.isInteger(value) && value > 0 && value <= 65535) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function inferHost(
+  expression: string | undefined,
+  source: string,
+  seen = new Set<string>(),
+): string | undefined {
+  if (!expression) return undefined;
+
+  const envHost = stringEnvValue(expression);
+  if (envHost) return envHost;
+
+  const literal = expression.trim().match(/^["'`]([^"'`]+)["'`]$/);
+  if (literal) {
+    return literal[1];
+  }
+
+  const identifier = expression.trim();
+  if (/^[A-Za-z_$][\w$]*$/.test(identifier) && !seen.has(identifier)) {
+    seen.add(identifier);
+    const initializer = findVariableInitializer(source, identifier);
+    if (initializer) {
+      return inferHost(initializer, source, seen);
+    }
+  }
+
+  const fallbackLiterals = [...expression.matchAll(/["'`]([^"'`]+)["'`]/g)]
+    .map((match) => match[1]);
+
+  for (let i = fallbackLiterals.length - 1; i >= 0; i--) {
+    const value = fallbackLiterals[i];
+    if (value.includes(".") || value === "localhost" || value.includes(":")) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function stringEnvValue(expression: string): string | undefined {
+  const envNames = [...expression.matchAll(/process\.env\.([A-Za-z_][\w]*)/g)]
+    .map((match) => match[1]);
+
+  for (const envName of envNames) {
+    const value = process.env[envName]?.trim();
+    if (value) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function findVariableInitializer(
+  source: string,
+  name: string,
+): string | undefined {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`(?:const|let|var)\\s+${escapedName}\\s*=\\s*([^;\\n]+)`);
+  return source.match(pattern)?.[1]?.trim();
+}
+
+function normalizeAppUrl(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  return trimmed.replace(/\/+$/g, "");
+}
+
+function normalizeAppHost(host: string): string {
+  const normalized = host.trim();
+  if (normalized === "0.0.0.0" || normalized === "::" || normalized === "[::]") {
+    return "127.0.0.1";
+  }
+
+  return normalized;
 }
 
 export function assertSafeServeHost(

@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   assertSafeServeHost,
   createDocsRequestHandler,
+  resolveServeTryItAppUrl,
   startAppProcess,
 } from "../src/commands/serve.js";
 
@@ -21,9 +22,11 @@ const fixtureRoot = path.join(repoRoot, "examples/nestjs-api");
 describe("specord serve", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it("serves the docs shell and generated OpenAPI JSON without starting Nest", async () => {
+    vi.stubEnv("PORT", "");
     vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const server = http.createServer(
       createDocsRequestHandler({ target: fixtureRoot }, { cwd: repoRoot }),
@@ -48,6 +51,7 @@ describe("specord serve", () => {
       expect(htmlResponse.status).toBe(200);
       expect(html).toContain("data-specord-docs-shell");
       expect(html).toContain("/api/openapi.json");
+      expect(html).toContain("http://localhost:3000");
       expect(html).toContain('"sameOriginTryIt":false');
       expect(openApiResponse.status).toBe(200);
       expect(document.openapi).toBe("3.1.0");
@@ -61,6 +65,23 @@ describe("specord serve", () => {
         server.close((error) => (error ? reject(error) : resolve())),
       );
     }
+  });
+
+  it("infers the Try It app URL from a static Nest app.listen port", async () => {
+    vi.stubEnv("PORT", "");
+
+    await expect(
+      resolveServeTryItAppUrl({ target: fixtureRoot }, repoRoot),
+    ).resolves.toBe("http://localhost:3000");
+  });
+
+  it("lets explicit --app-url override inferred runtime URLs", async () => {
+    await expect(
+      resolveServeTryItAppUrl(
+        { target: fixtureRoot, appUrl: "http://127.0.0.1:4321/" },
+        repoRoot,
+      ),
+    ).resolves.toBe("http://127.0.0.1:4321");
   });
 
   it("starts an optional app command from the target project directory", () => {

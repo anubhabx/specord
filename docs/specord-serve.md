@@ -57,6 +57,12 @@ specord serve apps/api --app-command "pnpm start:dev" --app-url http://localhost
 
 ## Try It
 
-The docs UI includes a browser-local Try it panel. Because `specord serve` is a standalone docs server and does not proxy API traffic, Try it needs a target API base URL from either `--app-url` or `document.servers[0].url`.
+The docs UI includes a browser-local Try it panel. Because `specord serve` is a standalone docs server and does not proxy API traffic, Try it needs a target API base URL.
+
+Specord resolves that target in this order:
+
+1. `--app-url`
+2. `document.servers[0].url` from `specord.config.ts`
+3. A static `app.listen(...)` port in the target app's `src/main.ts`
 
 The panel does not persist credentials, proxy requests, or bypass browser CORS rules. Header fields are sent only when the OpenAPI operation exposes header parameters.

@@ -182,7 +182,7 @@ The immediate implementation slice enables the existing Try it panel to execute 
 
 Scope:
 
-- Build the request URL from an explicit `appUrl`, `servers[0].url`, or same-origin fallback when the docs are mounted inside the target app.
+- Build the request URL from an explicit `appUrl`, `servers[0].url`, a static `app.listen(...)` inference in standalone serve mode, or same-origin fallback when the docs are mounted inside the target app.
 - Replace `{path}` parameters from form values.
 - Append non-empty query parameters.
 - Add non-empty header parameters.

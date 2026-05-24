@@ -1,8 +1,8 @@
 # Phase 6 Session Report - API History, Try It, and NestJS Benchmark Reset
 
 **Phase:** 6 - API history architecture, browser-local Try It, and benchmark fixture hardening
-**Date:** 2026-05-21
-**Status:** Healthy. The old, clunky draggable panel layout has been retired. A clean-sheet visual and interactive redesign has been delivered into a gorgeous, high-end three-column API Reference workspace. Phase 6e (Local History Routes) and Phase 6f (Visual History Changelogs) are fully delivered, integrating seamless git log analysis, cold snapshot caches, and robust pre-warmed fallback logs. Try It Authentication Hardening dynamically persists Bearer/custom credentials to sessionStorage and synchronizes with fetches and multi-language snippets in real-time. All styling has been refined to a humanized minimal style system using Inter, flat slates, clean thin borders, flat badges, and sharp 4px controls (zero gradients, zero neons/glows). All 72 tests across the monorepo packages are green.
+**Date:** 2026-05-25
+**Status:** Healthy. The old, clunky draggable panel layout has been retired. A clean-sheet visual and interactive redesign has been delivered into a high-end three-column API Reference workspace. Phase 6e (Local History Routes) and Phase 6f (Visual History Changelogs) are fully delivered, integrating git log analysis, cold snapshot caches, and robust pre-warmed fallback logs. Try It Authentication Hardening dynamically persists Bearer/custom credentials to sessionStorage and synchronizes with fetches and multi-language snippets in real-time. Standalone `specord serve` now avoids accidental self-calls and resolves Try It targets from `--app-url`, configured OpenAPI servers, or a static `app.listen(...)` port. All styling has been refined to a humanized minimal style system using Inter, flat slates, clean thin borders, flat badges, and sharp 4px controls. All 75 tests across the monorepo packages are green.
 
 ---
 
@@ -16,12 +16,14 @@ Phase 6 now covers all six delivered slices:
 4. **Local History Routes (Phase 6e)**: Modified `specord serve` to accept `historyPath` and `cwd`, serving computed OpenAPI history records from `.git/specord/cache/snapshots` via `/api/history` with graceful degradation try/catches.
 5. **Visual History Changelogs (Phase 6f)**: Added a premium visual vertical timeline rendering added, changed, removed, deprecated, and security events inside a dedicated "History" tab in the toolkit column with flat, non-glowing circles and a global show-all toggle check.
 6. **Try It Authentication Hardening**: Integrated custom header/bearer token inputs that safely persist to browser `sessionStorage` and dynamically synchronize client fetches and code snippets.
-7. **Fixture Benchmark**: Maintained the canonical `examples/nestjs-api` production-shaped Nest CLI app as our primary generation target.
+7. **Standalone Try It Targeting**: Prevented standalone docs from falling back to the docs origin, added disabled/no-target UX, preserved non-JSON error bodies, and inferred app URLs from explicit flags, config servers, or static `app.listen(...)` ports.
+8. **Fixture Benchmark**: Maintained the canonical `examples/nestjs-api` production-shaped Nest CLI app as our primary generation target.
 
 Current health is green:
 * Workspace `pnpm build`: All 6 Turborepo package builds compile successfully with no TypeScript warnings.
-* Workspace `pnpm test`: 11 Turborepo tasks executed, all 72 tests passed cleanly.
-* `@specord/ui`: 5 tests pass against the new three-column structural hooks and safety escapes.
+* Workspace `pnpm test`: 11 Turborepo tasks executed, all 75 tests passed cleanly.
+* `@specord/ui`: 6 tests pass against the three-column structural hooks, Try It target configuration, and safety escapes.
+* Browser QA: standalone `specord serve` without `--app-url` inferred `http://localhost:4801` from a static `app.listen(...)` environment port and executed `GET /accounts` against the target app with `200 OK`.
 
 ---
 
@@ -38,6 +40,8 @@ Current health is green:
 | **History API Server** | `GET /api/history` served from `specord serve` compiling git commit-scoped schema diffs or pre-warmed fallback mock logs |
 | **Visual History Tab** | Sleek card-by-card vertical timeline of operation-specific or global change logs complete with change-type badging |
 | **Authentication Form** | Session-persisted authorization inputs synchronizing with the active workbench fetching and generation engines |
+| **Standalone Try It Guard** | Standalone docs no longer send Try It calls to the docs server when no target API is known |
+| **App URL Inference** | `specord serve` resolves Try It targets from `--app-url`, `document.servers[0].url`, then a static `app.listen(...)` port in `src/main.ts` |
 | **Test hardening** | `packages/ui/test/render-docs-ui.test.ts` updated to fully cover three-column layout hooks, search controls, and HTML safety escapes |
 | **Fixture cleanups** | Maintained realistic Nest-heavy REST API target surface in `examples/nestjs-api` |
 
@@ -55,11 +59,14 @@ Current health is green:
 | Fuzzy searches filter sidebar | **Pass** | Instant keypress filters for paths, tags, descriptions, and HTTP methods |
 | Try It interactive client runs | **Pass** | Standard fetch client with header custom inputs and status code coloring (green/red) |
 | Active snippet sync is live | **Pass** | Language snippets (cURL, JS, Py, Go, Rust) synchronize immediately upon changing input fields |
+| Standalone Try It avoids docs-origin 404s | **Pass** | `specord serve` sets `sameOriginTryIt: false`; no target disables Send instead of calling the docs shell |
+| Standalone Try It infers app URL | **Pass** | CLI tests and browser QA verified static `app.listen(...)`/`PORT` inference to `http://localhost:4801` |
+| Explicit app URL precedence | **Pass** | CLI tests verify `--app-url` overrides inferred runtime targets |
 | Local history routes active | **Pass** | `/api/history` serves commit schema changes computed using `diffOpenApiSnapshots` |
 | History visual timeline loaded | **Pass** | Dedicated tab draws rich vertical timelines with flat, non-glowing changeset badging |
 | Authentication details hardened | **Pass** | Session-only token preservation avoids server leakage and accurately feeds fetch headers/snippets |
 | UI compiler builds successfully | **Pass** | `pnpm --filter @specord/ui build` exited 0 with no TypeScript errors |
-| Full Vitest suite passes | **Pass** | `pnpm test` completed 11/11 successful runs with all 72 tests green |
+| Full Vitest suite passes | **Pass** | `pnpm test` completed 11/11 successful runs with all 75 tests green |
 
 ---
 
@@ -93,6 +100,8 @@ The system can now:
 * Generate visual, readable TypeScript interfaces directly from complex OpenAPI model properties.
 * Allow developers to test endpoints locally, viewing live response headers, timing latency, and syntax-highlighted JSON bodies.
 * Synchronize request parameters with code snippets across Curl, JS, Python, Go, and Rust.
+* Resolve standalone Try It API targets from explicit CLI flags, OpenAPI server config, or static Nest `app.listen(...)` ports.
+* Disable standalone Try It when no API target can be inferred, avoiding misleading docs-server 404 responses.
 * Avoid breaking CLI serving (`specord serve`) or Nest injection (`setupSpecordDocs`) contracts.
 * Render historical changesets computed directly from git repositories and local snapshots caches in the Developer Toolkit.
 * Gracefully degrade with high-fidelity pre-warmed mock logs on gitless systems or cold caches.
@@ -100,6 +109,7 @@ The system can now:
 
 The system still cannot:
 * Persist or share Try It credentials across multiple browser profiles/sessions (retained strictly in sessionStorage for security).
+* Infer dynamic runtime targets from non-static bootstraps, computed hosts, custom launchers, or framework adapters without config.
 * Fetch remote schema definitions directly (extraction is strictly source-first).
 
 ---
@@ -111,7 +121,7 @@ The system still cannot:
 | UI Source Files | 5 TypeScript files |
 | UI Source Lines | ~1,250 lines |
 | Core Test Files | 9 Vitest suites |
-| Workspace Tests | 72 tests (100% passing) |
+| Workspace Tests | 75 tests (100% passing) |
 
 ---
 
@@ -125,6 +135,8 @@ The system still cannot:
 | **Active Live Snippets** | Synchronizing language headers and parameters on active inputs provides an elite playground experience. |
 | **Gitless Graceful Degradation** | Using robust try-catches around Git shell commands guarantees the CLI server will never crash when run on platforms without Git installed. |
 | **sessionStorage Preservation** | Restricting client authentication details to browser session memories provides local workbench productivity without caching private keys to hard drives or servers. |
+| **Standalone Try It Target Order** | `--app-url` remains authoritative, followed by configured OpenAPI servers, then conservative static `app.listen(...)` inference. |
+| **No Same-Origin Fallback In Standalone Serve** | Standalone docs do not proxy API traffic, so same-origin Try It is reserved for injected docs where the API and docs share an app origin. |
 
 ---
 
@@ -138,6 +150,7 @@ The system still cannot:
 | **Phase 6d** | UI Visual Redesign | Completed |
 | **Phase 6e** | Local history routes integration | **Completed** |
 | **Phase 6f** | UI changelog render | **Completed** |
+| **Phase 6g** | Standalone Try It target safety and inference | **Completed** |
 
 ---
 
@@ -145,6 +158,7 @@ The system still cannot:
 
 | Risk | Severity | Mitigation |
 | --- | --- | --- |
-| CORS issues on split-origin setups | **Medium** | Try It UI displays useful guidelines and captures fetch failures elegantly. |
+| CORS issues on split-origin setups | **Medium** | Try It UI displays useful target guidance, preserves response bodies where possible, and leaves CORS enforcement to the browser. |
+| Dynamic app bootstraps cannot be inferred | **Medium** | Static inference is deliberately conservative; teams can still set `--app-url` or `document.servers[0].url`. |
 | Nested deep array references in schema recursive resolver | **Low** | Core resolver resolves `$ref` and handles recursion gracefully with safe fallback bounds. |
 | Git commands throwing on Windows | **Low** | Executed shell queries are fully wrapped in try/catch blocks with pre-warmed JSON changelogs ready as automatic fallbacks. |

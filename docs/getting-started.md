@@ -60,7 +60,7 @@ pnpm.cmd serve -- examples/nestjs-api --pretty
 
 Open `http://127.0.0.1:4777/api`.
 
-The UI can send browser-local Try it requests for the selected operation. Injected docs can use same-origin paths; standalone `specord serve` needs `--app-url` or an OpenAPI `servers[0].url` target because it does not proxy API traffic. Specord does not persist credentials or proxy around CORS.
+The UI can send browser-local Try it requests for the selected operation. Injected docs can use same-origin paths; standalone `specord serve` resolves the target from `--app-url`, OpenAPI `servers[0].url`, or a static `app.listen(...)` port in `src/main.ts`. Specord does not persist credentials or proxy around CORS.
 
 ## Add Precision With Config
 
