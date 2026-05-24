@@ -179,6 +179,7 @@ async function handleDocsRequest(
           openApiUrl: jsonPath,
           appUrl: flags.appUrl,
           historyUrl: historyPath,
+          sameOriginTryIt: false,
         }),
       );
       return;

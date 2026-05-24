@@ -46,6 +46,17 @@ describe("renderDocsUi", () => {
     expect(html).toContain('data-toolkit-tab="spec"');
     expect(html).toContain("data-specord-toolkit-content");
     expect(html).toContain("data-specord-toast-container");
+    expect(html).toContain("data-specord-try-target");
+    expect(html).toContain("resolveTryItBaseUrl");
+  });
+
+  it("can disable same-origin Try It fallback for standalone docs servers", () => {
+    const html = renderDocsUi({
+      openApiUrl: "/api/openapi.json",
+      sameOriginTryIt: false,
+    });
+
+    expect(html).toContain('"sameOriginTryIt":false');
   });
 
   it("keeps injected client configuration HTML-safe", () => {

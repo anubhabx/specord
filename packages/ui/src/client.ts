@@ -476,6 +476,7 @@ export const CLIENT_SCRIPT = String.raw`
   // --- Try It execution panel ---
   function renderTryIt(container, op) {
     var html = "";
+    var targetBaseUrl = resolveTryItBaseUrl();
     html += '<div style="display: grid; gap: 16px;">';
     
     // Auth section
@@ -491,6 +492,15 @@ export const CLIENT_SCRIPT = String.raw`
     html += '        <input type="text" class="auth-input" id="specord-auth-token-input" value="' + escapeHtml(sessionToken) + '" placeholder="Bearer your-token-here..." />';
     html += '      </div>';
     html += '    </div>';
+    html += '  </div>';
+
+    html += '  <div class="try-target" data-specord-try-target>';
+    html += '    <span>Target</span>';
+    if (targetBaseUrl) {
+      html += '    <code>' + escapeHtml(targetBaseUrl) + '</code>';
+    } else {
+      html += '    <code>Set --app-url or document.servers[0].url</code>';
+    }
     html += '  </div>';
 
     // Inputs for all parameters (Path, Query, Headers)
@@ -533,7 +543,7 @@ export const CLIENT_SCRIPT = String.raw`
     }
 
     // Submit execution button
-    html += '  <button class="btn-premium is-primary" style="width: 100%; justify-content: center; height: 38px;" data-specord-try-submit>';
+    html += '  <button class="btn-premium is-primary" style="width: 100%; justify-content: center; height: 38px;" data-specord-try-submit' + (!targetBaseUrl ? ' disabled' : '') + '>';
     html += '    <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor" aria-hidden="true" style="margin-right: 6px;"><path d="M3 13.5V2.5l11 5.5-11 5.5z"/></svg>';
     html += '    Send Browser-local request';
     html += '  </button>';
@@ -548,6 +558,9 @@ export const CLIENT_SCRIPT = String.raw`
       html += '      <span class="try-status-code ' + statusClass + '">' + state.tryItResponse.status + ' ' + escapeHtml(state.tryItResponse.statusText) + '</span>';
       html += '      <span class="try-latency">' + state.tryItLatency + ' ms</span>';
       html += '    </div>';
+      if (state.tryItResponse.targetUrl) {
+        html += '    <div class="try-response-url">' + escapeHtml(state.tryItResponse.targetUrl) + '</div>';
+      }
       html += '    <pre class="snippet-pre" style="max-height: 320px; overflow-y: auto;">' + formatHighlightedJson(state.tryItResponse.data) + '</pre>';
       html += '  </div>';
     }
@@ -589,8 +602,23 @@ export const CLIENT_SCRIPT = String.raw`
   function executeTryRequest(op) {
     var pathParams = {};
     var queryParams = {};
-    var headers = {};
     var body = null;
+    var targetBaseUrl = resolveTryItBaseUrl();
+
+    if (!targetBaseUrl) {
+      state.tryItResponse = {
+        status: 0,
+        statusText: "Target Missing",
+        data: {
+          error: "No Try It target is configured.",
+          hint: "For standalone specord serve, start with --app-url or add document.servers[0].url."
+        }
+      };
+      state.tryItLatency = 0;
+      renderToolkit();
+      showToast("Try It target missing.", "error");
+      return;
+    }
 
     // Load auth token
     var sessionToken = sessionStorage.getItem("specord:tryit:auth:headers") || "";
@@ -647,8 +675,7 @@ export const CLIENT_SCRIPT = String.raw`
       queryString = "?" + queryKeys.map(function (k) { return encodeURIComponent(k) + "=" + encodeURIComponent(queryParams[k]); }).join("&");
     }
 
-    var appUrl = window.__SPECORD__.appUrl || window.location.origin;
-    var finalUrl = appUrl + finalPath + queryString;
+    var finalUrl = joinUrlAndPath(targetBaseUrl, finalPath) + queryString;
 
     // Setup visual loading state
     var submitBtn = q("[data-specord-try-submit]");
@@ -665,19 +692,13 @@ export const CLIENT_SCRIPT = String.raw`
     })
       .then(function (res) {
         var duration = Math.round(performance.now() - start);
-        return res.json().then(function (data) {
+        return res.text().then(function (text) {
           return {
             status: res.status,
             statusText: res.statusText,
             latency: duration,
-            data: data
-          };
-        }).catch(function () {
-          return {
-            status: res.status,
-            statusText: res.statusText,
-            latency: duration,
-            data: { error: "Non-JSON response or fetch payload failed." }
+            data: parseTryResponseText(text),
+            targetUrl: finalUrl
           };
         });
       })
@@ -685,7 +706,11 @@ export const CLIENT_SCRIPT = String.raw`
         state.tryItResponse = result;
         state.tryItLatency = result.latency;
         renderToolkit();
-        showToast("Request executed successfully.", "success");
+        if (result.status >= 200 && result.status < 300) {
+          showToast("Request executed successfully.", "success");
+        } else {
+          showToast("Request completed with HTTP " + result.status + ".", "error");
+        }
       })
       .catch(function (err) {
         var duration = Math.round(performance.now() - start);
@@ -698,6 +723,68 @@ export const CLIENT_SCRIPT = String.raw`
         renderToolkit();
         showToast("Fetch execution failed.", "error");
       });
+  }
+
+  function resolveTryItBaseUrl() {
+    var appUrl = normalizeTryItBaseUrl(config.appUrl);
+    if (appUrl) return appUrl;
+
+    var serverUrl = resolveOpenApiServerUrl();
+    if (serverUrl) return serverUrl;
+
+    if (config.sameOriginTryIt === false) return "";
+    return window.location.origin;
+  }
+
+  function resolveOpenApiServerUrl() {
+    var servers = state.openapi && Array.isArray(state.openapi.servers)
+      ? state.openapi.servers
+      : [];
+
+    for (var i = 0; i < servers.length; i++) {
+      var server = servers[i];
+      var rawUrl = typeof server === "string" ? server : (server && server.url);
+      if (typeof rawUrl !== "string" || !rawUrl.trim()) continue;
+      if (rawUrl.indexOf("{") !== -1) continue;
+
+      try {
+        var absolute = new URL(rawUrl, window.location.origin).href;
+        var normalized = normalizeTryItBaseUrl(absolute);
+        if (normalized) return normalized;
+      } catch (_err) {
+        continue;
+      }
+    }
+
+    return "";
+  }
+
+  function normalizeTryItBaseUrl(value) {
+    if (typeof value !== "string") return "";
+    var trimmed = value.trim();
+    if (!trimmed) return "";
+    return trimmed.replace(/\/+$/g, "");
+  }
+
+  function joinUrlAndPath(baseUrl, path) {
+    var normalizedBase = normalizeTryItBaseUrl(baseUrl);
+    var normalizedPath = String(path || "").replace(/^\/+/g, "");
+    if (!normalizedBase) return "/" + normalizedPath;
+    if (!normalizedPath) return normalizedBase;
+    return normalizedBase + "/" + normalizedPath;
+  }
+
+  function parseTryResponseText(text) {
+    if (!text) return null;
+
+    try {
+      return JSON.parse(text);
+    } catch (_err) {
+      return {
+        error: "Non-JSON response.",
+        body: text
+      };
+    }
   }
 
   // --- Snippet panel rendering ---
@@ -766,6 +853,7 @@ export const CLIENT_SCRIPT = String.raw`
     var queryParams = {};
     var headers = {};
     var bodyContent = "";
+    var targetBaseUrl = resolveTryItBaseUrl();
 
     // Load auth token from sessionStorage
     var sessionToken = sessionStorage.getItem("specord:tryit:auth:headers") || "";
@@ -816,8 +904,9 @@ export const CLIENT_SCRIPT = String.raw`
       queryStr = "?" + queryKeys.map(function (k) { return encodeURIComponent(k) + "=" + encodeURIComponent(queryParams[k]); }).join("&");
     }
 
-    var appUrl = window.__SPECORD__.appUrl || window.location.origin;
-    var finalUrl = appUrl + finalPath + queryStr;
+    var finalUrl = targetBaseUrl
+      ? joinUrlAndPath(targetBaseUrl, finalPath) + queryStr
+      : finalPath + queryStr;
 
     // Curl
     var curlHeaders = Object.keys(headers).map(function (h) { return '  -H "' + h + ': ' + headers[h] + '"'; }).join(" \\\n");

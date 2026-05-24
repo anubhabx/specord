@@ -345,6 +345,18 @@ html, body {
   transform: none;
 }
 
+.btn-premium:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.btn-premium.is-primary:disabled,
+.btn-premium.is-primary:disabled:hover {
+  background: var(--surface-hover);
+  border-color: var(--border);
+  color: var(--text-muted);
+}
+
 .docs-workspace {
   padding: 40px;
   max-width: 860px;
@@ -751,6 +763,29 @@ html, body {
   background: var(--bg);
 }
 
+.try-target {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.try-target code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-family: var(--mono);
+}
+
 .try-response {
   margin-top: 24px;
   border-top: 1px solid var(--border);
@@ -786,6 +821,14 @@ html, body {
   font-size: 11px;
   color: var(--text-muted);
   font-family: var(--mono);
+}
+
+.try-response-url {
+  margin-bottom: 10px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
 }
 
 /* Toast Notification */

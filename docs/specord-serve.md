@@ -57,6 +57,6 @@ specord serve apps/api --app-command "pnpm start:dev" --app-url http://localhost
 
 ## Try It
 
-The docs UI includes a browser-local Try it panel. It builds requests from the selected OpenAPI operation, using `servers[0].url`, `--app-url`, or same-origin paths as the target base.
+The docs UI includes a browser-local Try it panel. Because `specord serve` is a standalone docs server and does not proxy API traffic, Try it needs a target API base URL from either `--app-url` or `document.servers[0].url`.
 
 The panel does not persist credentials, proxy requests, or bypass browser CORS rules. Header fields are sent only when the OpenAPI operation exposes header parameters.

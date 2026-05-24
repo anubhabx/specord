@@ -8,6 +8,7 @@ export interface DocsUiOptions {
   openApiUrl: string;
   appUrl?: string;
   historyUrl?: string;
+  sameOriginTryIt?: boolean;
 }
 
 export function renderDocsUi(options: DocsUiOptions): string {
@@ -17,6 +18,7 @@ export function renderDocsUi(options: DocsUiOptions): string {
     openApiUrl: options.openApiUrl,
     appUrl: options.appUrl,
     historyUrl: options.historyUrl,
+    sameOriginTryIt: options.sameOriginTryIt,
   });
 
   return `<!doctype html>

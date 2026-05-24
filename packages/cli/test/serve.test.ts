@@ -48,6 +48,7 @@ describe("specord serve", () => {
       expect(htmlResponse.status).toBe(200);
       expect(html).toContain("data-specord-docs-shell");
       expect(html).toContain("/api/openapi.json");
+      expect(html).toContain('"sameOriginTryIt":false');
       expect(openApiResponse.status).toBe(200);
       expect(document.openapi).toBe("3.1.0");
       expect(document.paths["/projects"].get.operationId).toBe("listProjects");
