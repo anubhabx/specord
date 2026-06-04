@@ -15,6 +15,10 @@ export const CLIENT_SCRIPT = String.raw`
     tryItResponse: null,
     tryItLatency: 0,
     historyRecords: [],
+    globalHistoryRecords: [],
+    historyByOperation: {},
+    historyLoadingKey: "",
+    historyGlobalLoaded: false,
     showGlobalHistory: false,
     tryItParams: {},
     tryItBody: {}
@@ -75,7 +79,7 @@ export const CLIENT_SCRIPT = String.raw`
           var responseKeys = Object.keys(state.operations[0].responses || {});
           state.activeResponseCode = responseKeys.indexOf("200") !== -1 ? "200" : (responseKeys[0] || "200");
         }
-        fetchApiHistory();
+        renderApp();
       })
       .catch(function (err) {
         renderError(err.message || String(err));
@@ -83,19 +87,104 @@ export const CLIENT_SCRIPT = String.raw`
   }
 
   function fetchApiHistory() {
-    var historyUrl = config.historyUrl || (config.openApiUrl.substring(0, config.openApiUrl.lastIndexOf('/')) + '/history');
+    return fetchGlobalHistory();
+  }
+
+  function fetchOperationHistory(op) {
+    if (!op) return;
+
+    var key = op.key;
+    if (state.historyByOperation[key]) {
+      state.historyRecords = state.historyByOperation[key];
+      renderToolkit();
+      return;
+    }
+
+    state.historyLoadingKey = key;
+    renderToolkit();
+
+    fetch(buildOperationHistoryUrl(op))
+      .then(function (res) {
+        if (!res.ok) throw new Error("Operation history unavailable");
+        return res.json();
+      })
+      .then(function (data) {
+        var records = data.records || [];
+        state.historyByOperation[key] = records;
+        state.historyLoadingKey = "";
+        if (state.selectedOpKey === key && !state.showGlobalHistory) {
+          state.historyRecords = records;
+          renderToolkit();
+        }
+      })
+      .catch(function () {
+        fetchGlobalHistory(function (records) {
+          var filtered = filterHistoryRecordsForOperation(records, op);
+          state.historyByOperation[key] = filtered;
+          state.historyLoadingKey = "";
+          if (state.selectedOpKey === key && !state.showGlobalHistory) {
+            state.historyRecords = filtered;
+            renderToolkit();
+          }
+        });
+      });
+  }
+
+  function fetchGlobalHistory(callback) {
+    if (state.historyGlobalLoaded) {
+      if (callback) callback(state.globalHistoryRecords);
+      renderToolkit();
+      return;
+    }
+
+    state.historyLoadingKey = "__global__";
+    var historyUrl = resolveHistoryBaseUrl();
     fetch(historyUrl)
       .then(function (res) {
         if (!res.ok) return { records: [] };
         return res.json();
       })
       .then(function (data) {
-        state.historyRecords = data.records || [];
-        renderApp();
+        state.globalHistoryRecords = data.records || [];
+        state.historyGlobalLoaded = true;
+        state.historyLoadingKey = "";
+        if (callback) callback(state.globalHistoryRecords);
+        if (state.showGlobalHistory) {
+          state.historyRecords = state.globalHistoryRecords;
+        }
+        renderToolkit();
       })
       .catch(function () {
-        renderApp();
+        state.globalHistoryRecords = [];
+        state.historyGlobalLoaded = true;
+        state.historyLoadingKey = "";
+        if (callback) callback([]);
+        renderToolkit();
       });
+  }
+
+  function resolveHistoryBaseUrl() {
+    var configured = config.historyUrl || (config.openApiUrl.substring(0, config.openApiUrl.lastIndexOf('/')) + '/history');
+    return String(configured || "/api/history").replace(/\/+$/g, "");
+  }
+
+  function buildOperationHistoryUrl(op) {
+    var operationId = getHistoryOperationIdentity(op);
+    return resolveHistoryBaseUrl() + "/operations/" + encodeURIComponent(operationId) + "?limit=20";
+  }
+
+  function getHistoryOperationIdentity(op) {
+    return (op.original && op.original.operationId) || (op.method.toUpperCase() + " " + op.path);
+  }
+
+  function filterHistoryRecordsForOperation(records, op) {
+    var operationId = op.original && op.original.operationId;
+    var fallbackIdentity = op.method.toUpperCase() + " " + op.path;
+    return (records || []).filter(function (record) {
+      return record.operationId === operationId ||
+        (record.method === op.method && record.path === op.path) ||
+        (record.method && record.path && (record.method.toUpperCase() + " " + record.path) === fallbackIdentity);
+    });
   }
 
   // Flatten nested OpenAPI paths/methods into list operations
@@ -231,6 +320,9 @@ export const CLIENT_SCRIPT = String.raw`
     
     renderSidebar();
     renderContent();
+    if (op && state.activeToolkitTab === "history" && !state.showGlobalHistory) {
+      fetchOperationHistory(op);
+    }
   }
 
   // Render the core active endpoint details
@@ -417,13 +509,18 @@ export const CLIENT_SCRIPT = String.raw`
     html += '    </label>';
     html += '  </div>';
 
-    // Filter records
-    var filtered = state.historyRecords.filter(function (r) {
-      if (state.showGlobalHistory) return true;
-      return r.operationId === op.original.operationId || (r.method === op.method && r.path === op.path);
-    });
+    var isLoading = state.historyLoadingKey === op.key ||
+      (state.showGlobalHistory && state.historyLoadingKey === "__global__");
+    var records = state.showGlobalHistory
+      ? state.globalHistoryRecords
+      : (state.historyByOperation[op.key] || state.historyRecords);
+    var filtered = state.showGlobalHistory
+      ? records
+      : filterHistoryRecordsForOperation(records, op);
 
-    if (filtered.length === 0) {
+    if (isLoading) {
+      html += '  <div class="empty-state" style="padding: 20px 0;"><div class="spinner" style="width: 18px; height: 18px; margin: 0 auto 10px;"></div>Loading endpoint history...</div>';
+    } else if (filtered.length === 0) {
       html += '  <div class="empty-state" style="padding: 20px 0;">No changesets found for this operation.</div>';
     } else {
       html += '  <div class="history-timeline">';
@@ -463,6 +560,11 @@ export const CLIENT_SCRIPT = String.raw`
     if (chk) {
       chk.addEventListener("change", function (e) {
         state.showGlobalHistory = e.target.checked;
+        if (state.showGlobalHistory) {
+          fetchGlobalHistory();
+        } else {
+          fetchOperationHistory(op);
+        }
         renderHistoryTab(container, op);
       });
     }
@@ -470,6 +572,14 @@ export const CLIENT_SCRIPT = String.raw`
 
   function switchToolkitTab(tab) {
     state.activeToolkitTab = tab;
+    if (tab === "history") {
+      var op = state.operations.find(function (o) { return o.key === state.selectedOpKey; });
+      if (state.showGlobalHistory) {
+        fetchGlobalHistory();
+      } else {
+        fetchOperationHistory(op);
+      }
+    }
     renderToolkit();
   }
 

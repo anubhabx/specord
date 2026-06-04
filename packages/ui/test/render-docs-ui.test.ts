@@ -44,6 +44,7 @@ describe("renderDocsUi", () => {
     expect(html).toContain('data-toolkit-tab="try"');
     expect(html).toContain('data-toolkit-tab="snippets"');
     expect(html).toContain('data-toolkit-tab="spec"');
+    expect(html).toContain('data-toolkit-tab="history"');
     expect(html).toContain("data-specord-toolkit-content");
     expect(html).toContain("data-specord-toast-container");
     expect(html).toContain("data-specord-try-target");
@@ -67,5 +68,18 @@ describe("renderDocsUi", () => {
 
     expect(html).toContain("/api/openapi.json?next=\\u003cscript>");
     expect(html).not.toContain('"openApiUrl":"/api/openapi.json?next=<script>"');
+  });
+
+  it("wires operation-scoped endpoint history loading from the configured base URL", () => {
+    const html = renderDocsUi({
+      openApiUrl: "/api/openapi.json",
+      historyUrl: "/api/specord/history",
+    });
+
+    expect(html).toContain("/api/specord/history");
+    expect(html).toContain("historyByOperation");
+    expect(html).toContain("fetchOperationHistory");
+    expect(html).toContain('"/operations/"');
+    expect(html).toContain("Loading endpoint history");
   });
 });
