@@ -2,7 +2,7 @@
 
 **Phase:** 7 - Endpoint-scoped API history and public beta package release
 **Date:** 2026-06-04
-**Status:** Implementation healthy. The release lane was corrected from restricted/private publication to public beta publication because npm free plans do not allow private package publishing.
+**Status:** Implementation healthy. The release lane was corrected from restricted/private publication to public beta publication because npm free plans do not allow private package publishing. Public beta dry-run passes; real publish is currently blocked by npm's one-time auth flow.
 
 ---
 
@@ -43,7 +43,7 @@ Release metadata was corrected to publish all scoped `@specord/*` packages publi
 | UI avoids eager global history | Pass | UI client renders first, fetches selected operation history on History tab activation, and only fetches global records for Show all |
 | Public beta publish metadata | Pass | All scoped packages use version `0.1.0-beta.0` and `publishConfig.access: "public"` |
 | Public beta publish dry run | Pass | `pnpm.cmd publish -r --dry-run --tag beta --access public --no-git-checks` completed for six packages |
-| Real npm publish | Pending rerun | Use `pnpm.cmd publish -r --tag beta --access public --publish-branch main` |
+| Real npm publish | Blocked | `pnpm.cmd release:publish` failed with npm `EOTP`; publish requires a current OTP or browser auth completion |
 
 ---
 
@@ -126,7 +126,7 @@ The system still cannot:
 | Phase 7a | Server endpoint-history route contract | Completed |
 | Phase 7b | UI operation-scoped history loading | Completed |
 | Phase 7c | Private npm release metadata | Completed |
-| Phase 7d | Report and real npm publish | Report completed; publish blocked by npm 2FA/token policy |
+| Phase 7d | Report and real npm publish | Report completed; public beta publish blocked by npm one-time auth flow |
 | Future | Background history indexer and source diff drilldown | Planned |
 
 ---
