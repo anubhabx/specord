@@ -5,7 +5,7 @@ Status: Planned for checkpointed implementation
 
 ## Goal
 
-Make the Phase 6 API history surface operation-scoped by default, while keeping the legacy all-records history route available for existing docs shells. Finish by publishing the scoped `@specord/*` workspace packages to npm as private organization packages.
+Make the Phase 6 API history surface operation-scoped by default, while keeping the legacy all-records history route available for existing docs shells. Finish by publishing the scoped `@specord/*` workspace packages to npm as public beta packages under the `beta` dist-tag.
 
 ## Architecture
 
@@ -72,7 +72,7 @@ git add packages/ui/src/client.ts packages/ui/test/render-docs-ui.test.ts
 git commit -m "feat(ui): load endpoint history on demand"
 ```
 
-## Phase 7c - Private npm Publication Metadata
+## Phase 7c - Public Beta npm Publication Metadata
 
 Files:
 
@@ -81,19 +81,21 @@ Files:
 
 Implementation:
 
-1. Change release scripts to publish with `--access restricted`.
-2. Change package `publishConfig.access` values from `public` to `restricted`.
-3. Keep the root package private and unpublished.
-4. Verify packed files still include `dist`, `bin` where applicable, and package README files.
+1. Change release scripts to publish with `--access public`.
+2. Change release scripts to publish with `--tag beta`.
+3. Change package versions to `0.1.0-beta.0`.
+4. Change package `publishConfig.access` values to `public`.
+5. Keep the root package private and unpublished.
+6. Verify packed files still include `dist`, `bin` where applicable, and package README files.
 
 Checkpoint:
 
 ```powershell
 pnpm.cmd build
 pnpm.cmd test
-pnpm.cmd publish -r --dry-run --access restricted --no-git-checks
+pnpm.cmd publish -r --dry-run --tag beta --access public --no-git-checks
 git add package.json packages/*/package.json
-git commit -m "chore(release): publish packages privately"
+git commit -m "chore(release): publish beta packages publicly"
 ```
 
 ## Phase 7d - Report and npm Publish
@@ -107,7 +109,7 @@ Implementation:
 1. Write the cumulative Phase 7 executive report in `reports/phase-7.md`.
 2. Run the full verification gates.
 3. Commit the report.
-4. Publish packages to the `specord` npm organization as private packages.
+4. Publish packages to the `specord` npm organization as public beta packages.
 
 Checkpoint:
 
@@ -119,7 +121,7 @@ pnpm.cmd generate -- --project examples/nestjs-api/tsconfig.json --root examples
 git add reports/phase-7.md
 git commit -m "docs: report phase 7 endpoint history"
 npm whoami
-pnpm.cmd publish -r --access restricted --publish-branch develop --no-git-checks
+pnpm.cmd publish -r --tag beta --access public --publish-branch main
 ```
 
 ## Acceptance
@@ -128,6 +130,6 @@ pnpm.cmd publish -r --access restricted --publish-branch develop --no-git-checks
 - Legacy `/api/history` remains available.
 - The UI does not eagerly fetch all history records for every operation.
 - Operation history still renders with the existing visual timeline.
-- Release scripts and package metadata target restricted npm publication.
+- Release scripts and package metadata target public beta npm publication.
 - Full build, tests, fixture inspection, and fixture OpenAPI generation pass.
-- Private npm publication completes for the workspace packages.
+- Public beta npm publication completes for the workspace packages under the `beta` dist-tag.
