@@ -62,7 +62,8 @@ export function createDocsRequestHandler(
   const cwd = options.cwd ?? process.cwd();
   const docsPath = normalizePath(flags.docsPath ?? "/api");
   const jsonPath = normalizePath(flags.jsonPath ?? joinPath(docsPath, "openapi.json"));
-  const historyPath = normalizePath(joinPath(docsPath, "history"));
+  const legacyHistoryPath = normalizePath(joinPath(docsPath, "history"));
+  const historyBasePath = normalizePath(joinPath(docsPath, "specord/history"));
   const getOpenApiDocument = createCachedDocumentBuilder(flags, cwd);
   const getTryItAppUrl = createTryItAppUrlResolver(flags, cwd);
 
@@ -73,7 +74,8 @@ export function createDocsRequestHandler(
       flags,
       docsPath,
       jsonPath,
-      historyPath,
+      legacyHistoryPath,
+      historyBasePath,
       getOpenApiDocument,
       getTryItAppUrl,
       cwd,
@@ -153,7 +155,8 @@ async function handleDocsRequest(
   flags: ServeFlags,
   docsPath: string,
   jsonPath: string,
-  historyPath: string,
+  legacyHistoryPath: string,
+  historyBasePath: string,
   getOpenApiDocument: () => Promise<Record<string, unknown>>,
   getTryItAppUrl: () => Promise<string | undefined>,
   cwd: string,
@@ -183,7 +186,7 @@ async function handleDocsRequest(
           title: "Specord API Docs",
           openApiUrl: jsonPath,
           appUrl,
-          historyUrl: historyPath,
+          historyUrl: historyBasePath,
           sameOriginTryIt: false,
         }),
       );
@@ -196,10 +199,71 @@ async function handleDocsRequest(
       return;
     }
 
-    if (samePath(url.pathname, historyPath)) {
+    if (samePath(url.pathname, legacyHistoryPath) || samePath(url.pathname, historyBasePath)) {
       const document = await getOpenApiDocument();
       const records = await getApiHistoryRecords(flags, cwd, document);
       sendJson(response, { records }, flags.pretty);
+      return;
+    }
+
+    const operationHistoryId = pathRemainder(
+      url.pathname,
+      joinPath(historyBasePath, "operations"),
+    );
+    if (operationHistoryId !== undefined) {
+      const operationId = decodePathValue(operationHistoryId);
+      if (!operationId) {
+        sendText(response, 400, "Missing operationId");
+        return;
+      }
+
+      const limit = readHistoryLimit(url.searchParams, 20);
+      const document = await getOpenApiDocument();
+      const records = await getApiHistoryRecords(flags, cwd, document);
+      sendJson(
+        response,
+        {
+          operationId,
+          limit,
+          records: filterHistoryRecords(records, { operationId, limit }),
+        },
+        flags.pretty,
+      );
+      return;
+    }
+
+    if (samePath(url.pathname, joinPath(historyBasePath, "jobs"))) {
+      const document = await getOpenApiDocument();
+      const records = await getApiHistoryRecords(flags, cwd, document);
+      sendJson(response, { jobs: buildHistoryJobs(records) }, flags.pretty);
+      return;
+    }
+
+    const commitHistoryId = pathRemainder(
+      url.pathname,
+      joinPath(historyBasePath, "commits"),
+    );
+    if (commitHistoryId !== undefined) {
+      const commit = decodePathValue(commitHistoryId);
+      if (!commit) {
+        sendText(response, 400, "Missing commit");
+        return;
+      }
+
+      const operationId = url.searchParams.get("operationId") ?? undefined;
+      const limit = readHistoryLimit(url.searchParams, 50);
+      const document = await getOpenApiDocument();
+      const records = await getApiHistoryRecords(flags, cwd, document);
+      sendJson(
+        response,
+        {
+          commit,
+          operationId,
+          limit,
+          records: filterHistoryRecords(records, { commit, operationId, limit }),
+        },
+        flags.pretty,
+      );
       return;
     }
 
@@ -346,7 +410,7 @@ async function getApiHistoryRecords(
 
   const mockHistory: ApiHistoryRecord[] = [
     {
-      operationId: "AppController_getHealth",
+      operationId: "getHealth",
       method: "get",
       path: "/health",
       version: "1.0.0",
@@ -361,7 +425,7 @@ async function getApiHistoryRecords(
       sourceFiles: ["src/health/health.controller.ts"],
     },
     {
-      operationId: "AuthController_login",
+      operationId: "loginUser",
       method: "post",
       path: "/auth/login",
       version: "1.0.0",
@@ -371,14 +435,14 @@ async function getApiHistoryRecords(
       changeType: "security",
       breaking: true,
       confidence: "high",
-      summary: "Security hardened for Login: JWT token structure upgraded, CORS policies enforced.",
+      summary: "Security hardened for loginUser: JWT token structure upgraded, CORS policies enforced.",
       affectedFields: ["security"],
       sourceFiles: ["src/auth/auth.controller.ts"],
     },
     {
-      operationId: "UsersController_createUser",
-      method: "post",
-      path: "/users",
+      operationId: "listProjects",
+      method: "get",
+      path: "/projects",
       version: "1.1.0",
       commit: "f7e6d5c4b3a291029384756f7e6d5c4b",
       date: new Date(Date.now() - 3600000 * 24 * 2).toISOString(),
@@ -386,14 +450,14 @@ async function getApiHistoryRecords(
       changeType: "changed",
       breaking: false,
       confidence: "high",
-      summary: "Added new fields to request payload: 'role' (enum) and 'email' (format: email).",
-      affectedFields: ["requestBody"],
-      sourceFiles: ["src/users/users.controller.ts", "src/users/dto/create-user.dto.ts"],
+      summary: "Project list now exposes account-aware filtering and pagination metadata.",
+      affectedFields: ["parameters", "responses"],
+      sourceFiles: ["src/projects/projects.controller.ts", "src/projects/dto/list-projects-query.dto.ts"],
     },
     {
-      operationId: "TasksController_getTasks",
+      operationId: "listTasks",
       method: "get",
-      path: "/tasks",
+      path: "/projects/{projectId}/tasks",
       version: "1.2.0",
       commit: "e1d2c3b4a5678901234567890abcdef1",
       date: new Date(Date.now() - 3600000 * 12).toISOString(),
@@ -401,13 +465,87 @@ async function getApiHistoryRecords(
       changeType: "deprecated",
       breaking: false,
       confidence: "high",
-      summary: "Tasks list endpoint is now deprecated. Use projects dashboard tasks instead.",
+      summary: "Task list response now marks legacy dashboard fields as deprecated.",
       affectedFields: ["deprecated"],
       sourceFiles: ["src/tasks/tasks.controller.ts"],
     },
   ];
 
-  return [...records, ...mockHistory];
+  return sortHistoryRecords([...records, ...mockHistory]);
+}
+
+function filterHistoryRecords(
+  records: ApiHistoryRecord[],
+  options: {
+    operationId?: string;
+    commit?: string;
+    limit: number;
+  },
+): ApiHistoryRecord[] {
+  return sortHistoryRecords(records)
+    .filter((record) => {
+      if (options.operationId && !matchesHistoryOperation(record, options.operationId)) {
+        return false;
+      }
+
+      if (options.commit && record.commit !== options.commit) {
+        return false;
+      }
+
+      return true;
+    })
+    .slice(0, options.limit);
+}
+
+function matchesHistoryOperation(
+  record: ApiHistoryRecord,
+  operationId: string,
+): boolean {
+  const normalized = operationId.trim();
+  return record.operationId === normalized ||
+    `${record.method.toUpperCase()} ${record.path}` === normalized;
+}
+
+function buildHistoryJobs(records: ApiHistoryRecord[]): Array<Record<string, unknown>> {
+  const latestRecord = sortHistoryRecords(records)[0];
+  return [
+    {
+      id: "local-history",
+      status: "ready",
+      scope: "local-cache",
+      recordCount: records.length,
+      updatedAt: latestRecord?.date ?? null,
+      message: records.length > 0
+        ? "Endpoint history is ready from local snapshots and fallback records."
+        : "Endpoint history is ready, but no records are indexed yet.",
+    },
+  ];
+}
+
+function sortHistoryRecords(records: ApiHistoryRecord[]): ApiHistoryRecord[] {
+  return [...records].sort((left, right) => {
+    const leftTime = Date.parse(left.date);
+    const rightTime = Date.parse(right.date);
+
+    return (
+      (Number.isNaN(rightTime) ? 0 : rightTime) -
+      (Number.isNaN(leftTime) ? 0 : leftTime) ||
+      left.operationId.localeCompare(right.operationId) ||
+      left.commit.localeCompare(right.commit)
+    );
+  });
+}
+
+function readHistoryLimit(
+  searchParams: URLSearchParams,
+  fallback: number,
+): number {
+  const value = Number(searchParams.get("limit"));
+  if (!Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.max(1, Math.min(100, Math.trunc(value)));
 }
 
 function createCachedDocumentBuilder(
@@ -796,6 +934,32 @@ function sendText(response: ServerResponse, status: number, value: string): void
     "cache-control": "no-store",
   });
   response.end(`${value}\n`);
+}
+
+function pathRemainder(pathname: string, prefix: string): string | undefined {
+  const normalizedPath = normalizePath(pathname);
+  const normalizedPrefix = normalizePath(prefix);
+  if (normalizedPath === normalizedPrefix) {
+    return "";
+  }
+
+  const prefixWithSlash = normalizedPrefix === "/"
+    ? "/"
+    : `${normalizedPrefix}/`;
+
+  if (!normalizedPath.startsWith(prefixWithSlash)) {
+    return undefined;
+  }
+
+  return normalizedPath.slice(prefixWithSlash.length);
+}
+
+function decodePathValue(value: string): string {
+  try {
+    return decodeURIComponent(value).trim();
+  } catch {
+    return value.trim();
+  }
 }
 
 function normalizePath(value: string): string {

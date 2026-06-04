@@ -52,6 +52,7 @@ describe("specord serve", () => {
       expect(html).toContain("data-specord-docs-shell");
       expect(html).toContain("/api/openapi.json");
       expect(html).toContain("http://localhost:3000");
+      expect(html).toContain("/api/specord/history");
       expect(html).toContain('"sameOriginTryIt":false');
       expect(openApiResponse.status).toBe(200);
       expect(document.openapi).toBe("3.1.0");
@@ -59,6 +60,60 @@ describe("specord serve", () => {
 
       const repeatedOpenApiResponse = await fetch(`${baseUrl}/api/openapi.json`);
       expect(repeatedOpenApiResponse.status).toBe(200);
+
+      const historyResponse = await fetch(`${baseUrl}/api/specord/history`);
+      const history = await historyResponse.json();
+      expect(historyResponse.status).toBe(200);
+      expect(history.records.some((record: { operationId?: string }) =>
+        record.operationId === "loginUser",
+      )).toBe(true);
+
+      const legacyHistoryResponse = await fetch(`${baseUrl}/api/history`);
+      const legacyHistory = await legacyHistoryResponse.json();
+      expect(legacyHistoryResponse.status).toBe(200);
+      expect(legacyHistory.records.length).toBeGreaterThanOrEqual(history.records.length);
+
+      const operationHistoryResponse = await fetch(
+        `${baseUrl}/api/specord/history/operations/loginUser?limit=1`,
+      );
+      const operationHistory = await operationHistoryResponse.json();
+      expect(operationHistoryResponse.status).toBe(200);
+      expect(operationHistory).toMatchObject({
+        operationId: "loginUser",
+        limit: 1,
+      });
+      expect(operationHistory.records).toHaveLength(1);
+      expect(operationHistory.records[0].operationId).toBe("loginUser");
+
+      const fallbackIdentityResponse = await fetch(
+        `${baseUrl}/api/specord/history/operations/${encodeURIComponent("GET /health")}`,
+      );
+      const fallbackIdentityHistory = await fallbackIdentityResponse.json();
+      expect(fallbackIdentityResponse.status).toBe(200);
+      expect(fallbackIdentityHistory.records[0].operationId).toBe("getHealth");
+
+      const jobsResponse = await fetch(`${baseUrl}/api/specord/history/jobs`);
+      const jobs = await jobsResponse.json();
+      expect(jobsResponse.status).toBe(200);
+      expect(jobs.jobs[0]).toMatchObject({
+        id: "local-history",
+        status: "ready",
+        scope: "local-cache",
+      });
+
+      const loginRecord = history.records.find((record: { operationId?: string; commit?: string }) =>
+        record.operationId === "loginUser",
+      );
+      if (!loginRecord?.commit) {
+        throw new Error("Expected loginUser history record to expose a commit");
+      }
+      const commitHistoryResponse = await fetch(
+        `${baseUrl}/api/specord/history/commits/${loginRecord.commit}?operationId=loginUser`,
+      );
+      const commitHistory = await commitHistoryResponse.json();
+      expect(commitHistoryResponse.status).toBe(200);
+      expect(commitHistory.records).toHaveLength(1);
+      expect(commitHistory.records[0].commit).toBe(loginRecord.commit);
       expect(process.stderr.write).toHaveBeenCalledTimes(1);
     } finally {
       await new Promise<void>((resolve, reject) =>
