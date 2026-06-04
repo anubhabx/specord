@@ -28,7 +28,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install fixture dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
         working-directory: examples/nestjs-api
 
       - name: Build
