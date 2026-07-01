@@ -62,6 +62,17 @@ export function extractParams(
           source: location,
           inference: { status: "inferred" },
         });
+      } else {
+        const expandedParams = expandDtoParams(
+          typeRef,
+          schemas,
+          location,
+          false,
+          "path",
+        );
+        if (expandedParams) {
+          params.push(...expandedParams);
+        }
       }
       continue;
     }
@@ -85,11 +96,12 @@ export function extractParams(
       } else {
         // @Query() paginationDto: PaginationDto — entire DTO as query params
         const typeRef = resolveTypeRef(param, checker);
-        const expandedParams = expandQueryDtoParams(
+        const expandedParams = expandDtoParams(
           typeRef,
           schemas,
           location,
           !!param.questionToken,
+          "query",
         );
 
         if (expandedParams) {
@@ -142,11 +154,12 @@ export function extractParams(
   return { params, requestBody };
 }
 
-function expandQueryDtoParams(
+function expandDtoParams(
   typeRef: SchemaRef,
   schemas: Record<string, SchemaModel>,
   source: SourceLocation,
   isContainerOptional: boolean,
+  parameterLocation: "path" | "query",
 ): ParameterModel[] | undefined {
   if (typeRef.kind !== "ref") return undefined;
 
@@ -157,9 +170,11 @@ function expandQueryDtoParams(
 
   return Object.entries(schema.properties).map(([name, property]) => ({
     name,
-    in: "query",
+    in: parameterLocation,
     type: cloneSchemaRef(property.type),
-    required: !isContainerOptional && required.has(name),
+    required: parameterLocation === "path"
+      ? true
+      : !isContainerOptional && required.has(name),
     description: property.description,
     default: property.default,
     enum: property.enum ? [...property.enum] : undefined,

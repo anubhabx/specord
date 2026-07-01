@@ -12,6 +12,7 @@ import type { SourceLocation } from "./inspection-model.js";
  */
 export type DiagnosticCode =
   | "EXTRACTOR_UNRESOLVED_RESPONSE"
+  | "EXTRACTOR_UNRESOLVED_PATH_PARAM"
   | "EXTRACTOR_UNRESOLVED_SECURITY"
   | "EXTRACTOR_UNSUPPORTED_MAPPED_TYPE"
   | "EXTRACTOR_UNSUPPORTED_DECORATOR"

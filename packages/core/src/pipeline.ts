@@ -126,6 +126,23 @@ export function inspect(config: ResolvedConfig): InspectionModel {
 
       // Extract parameters
       const { params, requestBody } = extractParams(route, checker, root, schemas);
+      const emittedPathParams = new Set(
+        params
+          .filter((param) => param.in === "path")
+          .map((param) => param.name),
+      );
+      for (const paramName of pathParams) {
+        if (emittedPathParams.has(paramName)) continue;
+
+        operationDiagnostics.push({
+          severity: "warning",
+          code: "EXTRACTOR_UNRESOLVED_PATH_PARAM",
+          message: `Path template parameter "{${paramName}}" in ${route.path} has no matching emitted path parameter`,
+          source: route.location,
+          subject: route.id,
+          suggestedOverridePath: `operations.${route.id}.params`,
+        });
+      }
 
       // Extract response
       const { responses, diagnostics: responseDiagnostics } = extractResponse(
