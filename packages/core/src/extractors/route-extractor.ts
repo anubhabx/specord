@@ -9,7 +9,12 @@ import type {
   SourceLocation,
 } from "@specord/types";
 import type { DiscoveredController } from "./controller-discovery.js";
-import { findDecorator, extractDecoratorStringArg, hasDecorator } from "./controller-discovery.js";
+import {
+  extractDecoratorStringArg,
+  findDecorator,
+  hasAnyDecorator,
+  hasDecorator,
+} from "./controller-discovery.js";
 import {
   extractSwaggerOperation,
   extractSwaggerSecurityMetadata,
@@ -40,6 +45,12 @@ export interface DiscoveredRoute {
   hasMethodLevelGuard: boolean;
   /** Whether the controller has a class-level @UseGuards. */
   hasClassLevelGuard: boolean;
+  /** Whether this handler or its controller is explicitly public. */
+  isPublic: boolean;
+  /** Whether this handler has an app-specific auth decorator. */
+  hasMethodLevelAuthDecorator: boolean;
+  /** Whether the controller has an app-specific auth decorator. */
+  hasClassLevelAuthDecorator: boolean;
   /** Names of unsupported decorators on this handler. */
   unsupportedDecorators: string[];
   operationId?: string;
@@ -56,6 +67,7 @@ const KNOWN_DECORATORS = new Set([
   "Controller", "UseGuards", "HttpCode",
   "Param", "Query", "Body", "Headers", "Request", "Req", "Res", "Response",
   "Injectable", "Inject",
+  "Public", "SkipThrottle", "Throttle", "RequireCapability", "RequireAdmin",
   "ApiTags", "ApiOperation", "ApiResponse", "ApiOkResponse",
   "ApiCreatedResponse", "ApiAcceptedResponse", "ApiNoContentResponse",
   "ApiBadRequestResponse", "ApiUnauthorizedResponse", "ApiForbiddenResponse",
@@ -106,6 +118,10 @@ export function extractRoutes(
       const operation = extractSwaggerOperation(node);
       const methodTags = extractSwaggerTags(node);
       const methodSecurity = extractSwaggerSecurityMetadata(node);
+      const hasMethodLevelAuthDecorator = hasAnyDecorator(node, [
+        "RequireCapability",
+        "RequireAdmin",
+      ]);
 
       routes.push({
         id: `${controller.name}.${methodName}`,
@@ -118,6 +134,9 @@ export function extractRoutes(
         location: { file: relativePath, line: line + 1 },
         hasMethodLevelGuard: hasDecorator(node, "UseGuards"),
         hasClassLevelGuard: controller.hasClassLevelGuard,
+        isPublic: controller.isPublic || hasDecorator(node, "Public"),
+        hasMethodLevelAuthDecorator,
+        hasClassLevelAuthDecorator: controller.hasClassLevelAuthDecorator,
         unsupportedDecorators: unsupported,
         operationId: operation.operationId,
         summary: operation.summary,

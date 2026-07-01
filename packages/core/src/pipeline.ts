@@ -153,12 +153,20 @@ export function inspect(config: ResolvedConfig): InspectionModel {
       );
       operationDiagnostics.push(...responseDiagnostics);
 
-      const routeSecurity = mergeSecurityRequirements(route.security);
+      let routeSecurity = mergeSecurityRequirements(route.security);
       Object.assign(inferredSecuritySchemes, route.securitySchemes);
       const hasGuard = route.hasMethodLevelGuard || route.hasClassLevelGuard;
+      const hasExplicitAuthDecorator =
+        route.hasMethodLevelAuthDecorator || route.hasClassLevelAuthDecorator;
+      const hasAuth = hasExplicitAuthDecorator || (hasGuard && !route.isPublic);
+      if (routeSecurity.length === 0 && hasAuth) {
+        routeSecurity = defaultConfiguredSecurityRequirement(
+          userConfig.securitySchemes,
+        );
+      }
 
       // Security diagnostics
-      if (hasGuard && routeSecurity.length === 0) {
+      if (hasAuth && routeSecurity.length === 0) {
         operationDiagnostics.push(
           unresolvedSecurityDiagnostic(route.id, route.location),
         );
@@ -202,7 +210,7 @@ export function inspect(config: ResolvedConfig): InspectionModel {
         responses,
         security: routeSecurity.length > 0
           ? { status: "overridden" }
-          : hasGuard
+          : hasAuth
             ? { status: "unresolved", reason: "Guard/auth semantics require config override" }
             : { status: "inferred" },
         diagnostics: operationDiagnostics,
@@ -265,6 +273,21 @@ function mergeSecurityRequirements(
   }
 
   return merged;
+}
+
+function defaultConfiguredSecurityRequirement(
+  schemes: SpecordConfigV1["securitySchemes"] | undefined,
+): OpenApiSecurityRequirementObject[] {
+  const entries = Object.entries(schemes ?? {}).sort(([left], [right]) =>
+    left.localeCompare(right),
+  );
+  const bearerEntry = entries.find(
+    ([, scheme]) =>
+      scheme.type === "http" && scheme.scheme?.toLowerCase() === "bearer",
+  );
+  const selected = bearerEntry ?? entries[0];
+
+  return selected ? [{ [selected[0]]: [] }] : [];
 }
 
 function missingSecuritySchemes(

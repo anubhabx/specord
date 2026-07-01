@@ -27,6 +27,10 @@ export interface DiscoveredController {
   location: SourceLocation;
   /** Whether a guard decorator (e.g. @UseGuards) is applied at class level. */
   hasClassLevelGuard: boolean;
+  /** Whether the controller is explicitly public. */
+  isPublic: boolean;
+  /** Whether the controller declares an app-specific auth decorator. */
+  hasClassLevelAuthDecorator: boolean;
   /** Tags harvested from @ApiTags without importing @nestjs/swagger. */
   tags: string[];
   /** Security requirements harvested from class-level Swagger decorators. */
@@ -71,6 +75,11 @@ export function discoverControllers(
           line: line + 1, // 1-based
         },
         hasClassLevelGuard: hasDecorator(node, "UseGuards"),
+        isPublic: hasDecorator(node, "Public"),
+        hasClassLevelAuthDecorator: hasAnyDecorator(node, [
+          "RequireCapability",
+          "RequireAdmin",
+        ]),
         tags: extractSwaggerTags(node),
         security: security.requirements,
         securitySchemes: security.schemes,
@@ -115,6 +124,16 @@ export function findDecorator(
  */
 export function hasDecorator(node: ts.HasDecorators, name: string): boolean {
   return findDecorator(node, name) !== undefined;
+}
+
+/**
+ * Check if a node has any decorator from a set of names.
+ */
+export function hasAnyDecorator(
+  node: ts.HasDecorators,
+  names: readonly string[],
+): boolean {
+  return names.some((name) => hasDecorator(node, name));
 }
 
 /**
