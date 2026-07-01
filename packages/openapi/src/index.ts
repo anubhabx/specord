@@ -310,6 +310,8 @@ function schemaRefBaseToOpenApi(
       return { type: ref.type === "null" ? "null" : ref.type };
     case "array":
       return { type: "array", items: schemaRefToOpenApi(ref.items, {}, schemaNames) };
+    case "inline":
+      return { ...ref.schema };
     case "ref":
       if (!schemaNames.has(ref.name)) {
         return {};

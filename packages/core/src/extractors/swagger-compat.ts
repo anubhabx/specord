@@ -633,6 +633,8 @@ function cloneSchemaRef(type: SchemaRef): SchemaRef {
   switch (type.kind) {
     case "array":
       return { kind: "array", items: cloneSchemaRef(type.items) };
+    case "inline":
+      return { kind: "inline", schema: cloneUnknown(type.schema) as typeof type.schema };
     case "ref":
       return { kind: "ref", name: type.name };
     case "primitive":
@@ -640,4 +642,17 @@ function cloneSchemaRef(type: SchemaRef): SchemaRef {
     case "unknown":
       return { kind: "unknown" };
   }
+}
+
+function cloneUnknown(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(cloneUnknown);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, child]) => [
+        key,
+        cloneUnknown(child),
+      ]),
+    );
+  }
+  return value;
 }

@@ -61,6 +61,19 @@ const model: InspectionModel = {
           readOnly: true,
           inference: { status: "inferred" },
         },
+        settings: {
+          type: {
+            kind: "inline",
+            schema: {
+              type: "object",
+              additionalProperties: true,
+              properties: {
+                label: { type: ["string", "null"] },
+              },
+            },
+          },
+          inference: { status: "inferred" },
+        },
       },
       inference: { status: "inferred" },
     },
@@ -125,6 +138,13 @@ describe("emitOpenApiDocument", () => {
                 type: "string",
                 example: "ord_123",
                 readOnly: true,
+              },
+              settings: {
+                type: "object",
+                additionalProperties: true,
+                properties: {
+                  label: { type: ["string", "null"] },
+                },
               },
             },
           },
