@@ -481,19 +481,7 @@ exports[`inspect pipeline snapshot > produces a stable normalized inspection mod
       "security": {
         "status": "inferred"
       },
-      "diagnostics": [
-        {
-          "severity": "info",
-          "code": "EXTRACTOR_UNSUPPORTED_DECORATOR",
-          "message": "Decorator @Public() on AuthController.login is not in the supported allowlist",
-          "source": {
-            "file": "auth/auth.controller.ts",
-            "line": 33
-          },
-          "subject": "AuthController.login",
-          "suggestedOverridePath": "operations.AuthController.login"
-        }
-      ]
+      "diagnostics": []
     },
     {
       "id": "AuthController.logout",
@@ -628,19 +616,7 @@ exports[`inspect pipeline snapshot > produces a stable normalized inspection mod
       "security": {
         "status": "inferred"
       },
-      "diagnostics": [
-        {
-          "severity": "info",
-          "code": "EXTRACTOR_UNSUPPORTED_DECORATOR",
-          "message": "Decorator @Public() on AuthController.refresh is not in the supported allowlist",
-          "source": {
-            "file": "auth/auth.controller.ts",
-            "line": 41
-          },
-          "subject": "AuthController.refresh",
-          "suggestedOverridePath": "operations.AuthController.refresh"
-        }
-      ]
+      "diagnostics": []
     },
     {
       "id": "AuthController.register",
@@ -691,19 +667,7 @@ exports[`inspect pipeline snapshot > produces a stable normalized inspection mod
       "security": {
         "status": "inferred"
       },
-      "diagnostics": [
-        {
-          "severity": "info",
-          "code": "EXTRACTOR_UNSUPPORTED_DECORATOR",
-          "message": "Decorator @Public() on AuthController.register is not in the supported allowlist",
-          "source": {
-            "file": "auth/auth.controller.ts",
-            "line": 25
-          },
-          "subject": "AuthController.register",
-          "suggestedOverridePath": "operations.AuthController.register"
-        }
-      ]
+      "diagnostics": []
     },
     {
       "id": "BillingController.checkout",
@@ -1456,13 +1420,9 @@ exports[`inspect pipeline snapshot > produces a stable normalized inspection mod
         {
           "status": 200,
           "description": "Response schema could not be inferred — provide an override in specord.config.ts",
-          "schema": {
-            "kind": "ref",
-            "name": "StreamableFile"
-          },
           "inference": {
             "status": "unresolved",
-            "reason": "Return type \\"<type>\\" is not a discovered schema under --root"
+            "reason": "Return type \\"<type>\\" is not a reducible exported shape"
           }
         }
       ],
@@ -1473,7 +1433,7 @@ exports[`inspect pipeline snapshot > produces a stable normalized inspection mod
         {
           "severity": "warning",
           "code": "EXTRACTOR_UNRESOLVED_RESPONSE",
-          "message": "Return type \\"<type>\\" is not a discovered schema under --root",
+          "message": "Return type \\"<type>\\" is not a reducible exported shape",
           "source": {
             "file": "projects/projects.controller.ts",
             "line": 118
@@ -2154,17 +2114,6 @@ exports[`inspect pipeline snapshot > produces a stable normalized inspection mod
           "subject": "WebhooksController.stripe",
           "suggestedOverridePath": "securitySchemes.stripeSignature",
           "origin": "swagger"
-        },
-        {
-          "severity": "info",
-          "code": "EXTRACTOR_UNSUPPORTED_DECORATOR",
-          "message": "Decorator @Public() on WebhooksController.stripe is not in the supported allowlist",
-          "source": {
-            "file": "webhooks/webhooks.controller.ts",
-            "line": 19
-          },
-          "subject": "WebhooksController.stripe",
-          "suggestedOverridePath": "operations.WebhooksController.stripe"
         }
       ],
       "openapi": {

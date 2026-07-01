@@ -8,7 +8,7 @@
       "snapshotFile": "packages/core/test/__snapshots__/pipeline.snapshot.test.ts.snap",
       "modelVersion": "v1",
       "hashAlgorithm": "sha256",
-      "snapshotHash": "b0bfc171a97cf2c5275bace56e70b34b0fefb3bd0543e37526b0353621d0ea79",
+      "snapshotHash": "a1facafcb51302253b984be2181e59b7a28ddf113e79e6fd53f54bb3da56d1bc",
       "normalizedFields": [
         "source.project",
         "source.root",
@@ -22,13 +22,13 @@
         "operations": 27,
         "schemas": 42,
         "diagnostics": {
-          "total": 29,
+          "total": 25,
           "bySeverity": {
-            "info": 27,
+            "info": 23,
             "warning": 2
           },
           "byCode": {
-            "EXTRACTOR_UNSUPPORTED_DECORATOR": 27,
+            "EXTRACTOR_UNSUPPORTED_DECORATOR": 23,
             "EXTRACTOR_UNRESOLVED_RESPONSE": 1,
             "EXTRACTOR_UNRESOLVED_SECURITY": 1
           }
