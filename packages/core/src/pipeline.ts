@@ -56,8 +56,6 @@ export function inspect(config: ResolvedConfig): InspectionModel {
     root,
   );
 
-  const discoveredSchemaNames = new Set(Object.keys(schemas));
-
   // Step 4: Discover controllers
   const controllers = discoverControllers(sources.controllerFiles, root);
 
@@ -145,12 +143,21 @@ export function inspect(config: ResolvedConfig): InspectionModel {
       }
 
       // Extract response
-      const { responses, diagnostics: responseDiagnostics } = extractResponse(
+      const {
+        responses,
+        diagnostics: responseDiagnostics,
+        schemas: responseSchemas,
+      } = extractResponse(
         route,
         checker,
         root,
-        discoveredSchemaNames,
+        schemas,
       );
+      for (const [schemaName, responseSchema] of Object.entries(responseSchemas)) {
+        if (!schemas[schemaName]) {
+          schemas[schemaName] = responseSchema;
+        }
+      }
       operationDiagnostics.push(...responseDiagnostics);
 
       let routeSecurity = mergeSecurityRequirements(route.security);
