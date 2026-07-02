@@ -85,6 +85,12 @@ const model: InspectionModel = {
           nullable: true,
           inference: { status: "inferred" },
         },
+        untypedStatus: {
+          type: { kind: "unknown" },
+          enum: ["draft", "paid"],
+          nullable: true,
+          inference: { status: "inferred" },
+        },
       },
       inference: { status: "inferred" },
     },
@@ -176,6 +182,9 @@ describe("emitOpenApiDocument", () => {
               },
               status: {
                 type: ["string", "null"],
+                enum: ["draft", "paid", null],
+              },
+              untypedStatus: {
                 enum: ["draft", "paid", null],
               },
             },

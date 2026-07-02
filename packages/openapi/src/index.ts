@@ -302,8 +302,9 @@ function schemaRefToOpenApi(
 
 function applyNullableOpenApi(schema: Record<string, unknown>): Record<string, unknown> {
   const next = { ...schema };
-  if (Array.isArray(next.enum) && !next.enum.includes(null)) {
-    next.enum = [...next.enum, null];
+  const enumValues = Array.isArray(next.enum) ? next.enum : undefined;
+  if (enumValues && !enumValues.includes(null)) {
+    next.enum = [...enumValues, null];
   }
 
   if (typeof next.type === "string") {
@@ -315,6 +316,10 @@ function applyNullableOpenApi(schema: Record<string, unknown>): Record<string, u
     next.type = next.type.includes("null")
       ? next.type
       : [...next.type, "null"];
+    return next;
+  }
+
+  if (enumValues) {
     return next;
   }
 
