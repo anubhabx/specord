@@ -75,9 +75,10 @@ async function importTypeScriptConfig(
  */
 export function validateConfig(config: SpecordConfigV1): void {
   // Reject deprecated `versioning.type` key
-  const routing = config.routing as Record<string, unknown> | undefined;
-  if (routing?.versioning) {
-    const versioning = routing.versioning as Record<string, unknown>;
+  const routing = isObject(config.routing) ? config.routing : undefined;
+  const versioningValue = routing?.versioning;
+  if (isObject(versioningValue)) {
+    const versioning = versioningValue;
     if ("type" in versioning && !("strategy" in versioning)) {
       throw new Error(
         `[specord] Config error in routing.versioning: ` +
@@ -87,6 +88,10 @@ export function validateConfig(config: SpecordConfigV1): void {
       );
     }
   }
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** CLI flags that can override config values. */

@@ -42,6 +42,9 @@ const NEST_HTTP_STATUS: Record<string, number> = {
   NO_CONTENT: 204,
   RESET_CONTENT: 205,
   PARTIAL_CONTENT: 206,
+  MULTI_STATUS: 207,
+  ALREADY_REPORTED: 208,
+  CONTENT_DIFFERENT: 210,
   AMBIGUOUS: 300,
   MOVED_PERMANENTLY: 301,
   FOUND: 302,
@@ -70,15 +73,21 @@ const NEST_HTTP_STATUS: Record<string, number> = {
   I_AM_A_TEAPOT: 418,
   MISDIRECTED: 421,
   UNPROCESSABLE_ENTITY: 422,
+  LOCKED: 423,
   FAILED_DEPENDENCY: 424,
   PRECONDITION_REQUIRED: 428,
   TOO_MANY_REQUESTS: 429,
+  UNRECOVERABLE_ERROR: 456,
   INTERNAL_SERVER_ERROR: 500,
   NOT_IMPLEMENTED: 501,
   BAD_GATEWAY: 502,
   SERVICE_UNAVAILABLE: 503,
   GATEWAY_TIMEOUT: 504,
   HTTP_VERSION_NOT_SUPPORTED: 505,
+  INSUFFICIENT_STORAGE: 507,
+  LOOP_DETECTED: 508,
+  NOT_EXTENDED: 510,
+  NETWORK_AUTHENTICATION_REQUIRED: 511,
 };
 
 export type SwaggerOperationMetadata = {
@@ -482,9 +491,13 @@ function readSchemaFromResponseOptions(
 
   if (schemaExpr && ts.isObjectLiteralExpression(unwrapExpression(schemaExpr))) {
     const schema = literalValue(schemaExpr);
-    return isRecord(schema)
-      ? { kind: "inline", schema: cloneJsonValue(schema) as OpenApiSchemaObject }
-      : undefined;
+    if (!isRecord(schema)) return undefined;
+
+    const inline: SchemaRef = {
+      kind: "inline",
+      schema: cloneJsonValue(schema) as OpenApiSchemaObject,
+    };
+    return isArray ? { kind: "array", items: inline } : inline;
   }
 
   const ref = typeExpr ? schemaRefFromExpression(typeExpr) : undefined;
@@ -596,7 +609,7 @@ function unwrapExpression(expression: ts.Expression): ts.Expression {
   return current;
 }
 
-function httpStatusValueFromExpression(expression: ts.Expression): number | undefined {
+export function httpStatusValueFromExpression(expression: ts.Expression): number | undefined {
   const unwrapped = unwrapExpression(expression);
   if (!ts.isPropertyAccessExpression(unwrapped)) return undefined;
   if (!ts.isIdentifier(unwrapped.expression) || unwrapped.expression.text !== "HttpStatus") {

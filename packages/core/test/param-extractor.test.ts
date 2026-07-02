@@ -127,4 +127,97 @@ describe("path DTO parameter extraction", () => {
       ]),
     );
   });
+
+  it("uses pipes for named query params and ignores property-scoped body params", () => {
+    const projectRoot = createTempProject(tempRoots, {
+      prefix: "specord-param-",
+    });
+    const srcRoot = path.join(projectRoot, "src");
+
+    fs.writeFileSync(
+      path.join(srcRoot, "projects.controller.ts"),
+      [
+        "declare function Controller(path?: string): ClassDecorator;",
+        "declare function Patch(path?: string): MethodDecorator;",
+        "declare function Query(...args: unknown[]): ParameterDecorator;",
+        "declare function Body(...args: unknown[]): ParameterDecorator;",
+        "declare class ParseIntPipe {}",
+        "@Controller('projects')",
+        "class ProjectsController {",
+        "  @Patch(':id')",
+        "  update(@Query('page', ParseIntPipe) page: number, @Body('name') name: string) {",
+        "    return {};",
+        "  }",
+        "}",
+      ].join("\n"),
+    );
+
+    const model = inspect(
+      resolveConfig({
+        project: path.join(projectRoot, "tsconfig.json"),
+        root: srcRoot,
+      }),
+    );
+
+    const operation = model.operations.find(
+      (item) => item.id === "ProjectsController.update",
+    );
+
+    expect(operation?.params).toEqual([
+      expect.objectContaining({
+        name: "page",
+        in: "query",
+        type: { kind: "primitive", type: "integer" },
+      }),
+    ]);
+    expect(operation?.requestBody).toBeUndefined();
+  });
+
+  it("resolves generic Array<T> body types as arrays", () => {
+    const projectRoot = createTempProject(tempRoots, {
+      prefix: "specord-param-",
+    });
+    const srcRoot = path.join(projectRoot, "src");
+
+    fs.writeFileSync(
+      path.join(srcRoot, "project.dto.ts"),
+      [
+        "export class ProjectDto {",
+        "  id: string;",
+        "}",
+      ].join("\n"),
+    );
+
+    fs.writeFileSync(
+      path.join(srcRoot, "projects.controller.ts"),
+      [
+        "declare function Controller(path?: string): ClassDecorator;",
+        "declare function Post(path?: string): MethodDecorator;",
+        "declare function Body(...args: unknown[]): ParameterDecorator;",
+        "@Controller('projects')",
+        "class ProjectsController {",
+        "  @Post('bulk')",
+        "  create(@Body() body: Array<ProjectDto>) {",
+        "    return {};",
+        "  }",
+        "}",
+      ].join("\n"),
+    );
+
+    const model = inspect(
+      resolveConfig({
+        project: path.join(projectRoot, "tsconfig.json"),
+        root: srcRoot,
+      }),
+    );
+
+    const operation = model.operations.find(
+      (item) => item.id === "ProjectsController.create",
+    );
+
+    expect(operation?.requestBody?.schema).toEqual({
+      kind: "array",
+      items: { kind: "ref", name: "ProjectDto" },
+    });
+  });
 });

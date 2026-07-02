@@ -85,7 +85,8 @@ export function extractParams(
 
       if (specificName) {
         // @Query("name") — single named query param
-        const typeRef = resolveParamType(param, [], checker);
+        const pipeArgs = extractDecoratorIdentifierArgs(queryDecorator);
+        const typeRef = resolveParamType(param, pipeArgs, checker);
         params.push({
           name: specificName,
           in: "query",
@@ -124,6 +125,8 @@ export function extractParams(
     // Check for @Body()
     const bodyDecorator = findDecorator(param, "Body");
     if (bodyDecorator) {
+      if (extractDecoratorStringArg(bodyDecorator)) continue;
+
       const typeRef = resolveTypeRef(param, checker);
       requestBody = {
         schema: typeRef,
@@ -265,6 +268,13 @@ function typeNodeToSchemaRef(
     // Unwrap Promise<T> and Observable<T>
     if ((name === "Promise" || name === "Observable") && typeNode.typeArguments?.length === 1) {
       return typeNodeToSchemaRef(typeNode.typeArguments[0], checker);
+    }
+
+    if (name === "Array" && typeNode.typeArguments?.length === 1) {
+      return {
+        kind: "array",
+        items: typeNodeToSchemaRef(typeNode.typeArguments[0], checker),
+      };
     }
 
     return { kind: "ref", name };

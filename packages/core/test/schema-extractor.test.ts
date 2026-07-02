@@ -18,6 +18,53 @@ afterEach(() => {
 });
 
 describe("extractSchemas mapped type fallbacks", () => {
+  it("merges subclass properties declared on mapped type DTOs", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "specord-schema-"));
+    tempRoots.push(root);
+
+    const sourcePath = path.join(root, "mapped.dto.ts");
+    fs.writeFileSync(
+      sourcePath,
+      [
+        "declare function PartialType<T>(base: T): T;",
+        "export class CreateThingDto {",
+        "  name: string;",
+        "}",
+        "export class UpdateThingDto extends PartialType(CreateThingDto) {",
+        "  reason: string;",
+        "}",
+      ].join("\n"),
+    );
+
+    const program = ts.createProgram([sourcePath], {
+      module: ts.ModuleKind.Node16,
+      moduleResolution: ts.ModuleResolutionKind.Node16,
+      noEmit: true,
+      target: ts.ScriptTarget.ES2022,
+    });
+
+    const sourceFile = program.getSourceFile(sourcePath);
+    expect(sourceFile).toBeDefined();
+
+    const result = extractSchemas(
+      [sourceFile!],
+      program.getTypeChecker(),
+      root,
+    );
+
+    expect(result.schemas.UpdateThingDto).toMatchObject({
+      properties: {
+        name: expect.objectContaining({
+          type: { kind: "primitive", type: "string" },
+        }),
+        reason: expect.objectContaining({
+          type: { kind: "primitive", type: "string" },
+        }),
+      },
+      required: ["reason"],
+    });
+  });
+
   it("does not mark mapped types inferred when their base cannot be resolved", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "specord-schema-"));
     tempRoots.push(root);
@@ -69,6 +116,47 @@ describe("extractSchemas mapped type fallbacks", () => {
         .map((diagnostic) => diagnostic.subject)
         .sort(),
     ).toEqual(["PickedThingDto", "UpdatePickedThingDto"]);
+  });
+
+  it("extracts implicit numeric enum values", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "specord-schema-"));
+    tempRoots.push(root);
+
+    const sourcePath = path.join(root, "enum.dto.ts");
+    fs.writeFileSync(
+      sourcePath,
+      [
+        "export enum WidgetState {",
+        "  Draft,",
+        "  Published = 4,",
+        "  Archived,",
+        "}",
+        "export class WidgetDto {",
+        "  state: WidgetState;",
+        "}",
+      ].join("\n"),
+    );
+
+    const program = ts.createProgram([sourcePath], {
+      module: ts.ModuleKind.Node16,
+      moduleResolution: ts.ModuleResolutionKind.Node16,
+      noEmit: true,
+      target: ts.ScriptTarget.ES2022,
+    });
+
+    const sourceFile = program.getSourceFile(sourcePath);
+    expect(sourceFile).toBeDefined();
+
+    const result = extractSchemas(
+      [sourceFile!],
+      program.getTypeChecker(),
+      root,
+    );
+
+    expect(result.schemas.WidgetDto.properties.state).toMatchObject({
+      type: { kind: "primitive", type: "number" },
+      enum: [0, 4, 5],
+    });
   });
 });
 
@@ -162,6 +250,41 @@ describe("extractSchemas Zod DTO aliases", () => {
       },
       inference: { status: "inferred" },
     });
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it("prunes aliases that transitively depend on invalid zod schemas", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "specord-zod-schema-"));
+    tempRoots.push(root);
+
+    const sourcePath = path.join(root, "widgets.dto.ts");
+    fs.writeFileSync(
+      sourcePath,
+      [
+        "declare const z: any;",
+        "export const widgetSchema = sharedWidgetSchema;",
+        "const sharedWidgetSchema = z.notSupported();",
+        "export type WidgetDto = z.infer<typeof widgetSchema>;",
+      ].join("\n"),
+    );
+
+    const program = ts.createProgram([sourcePath], {
+      module: ts.ModuleKind.Node16,
+      moduleResolution: ts.ModuleResolutionKind.Node16,
+      noEmit: true,
+      target: ts.ScriptTarget.ES2022,
+    });
+
+    const sourceFile = program.getSourceFile(sourcePath);
+    expect(sourceFile).toBeDefined();
+
+    const result = extractSchemas(
+      [sourceFile!],
+      program.getTypeChecker(),
+      root,
+    );
+
+    expect(result.schemas).toEqual({});
     expect(result.diagnostics).toEqual([]);
   });
 });

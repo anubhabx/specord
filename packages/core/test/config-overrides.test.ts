@@ -209,5 +209,19 @@ describe("config override application", () => {
         },
       }),
     ).toThrow(/Invalid response override status "ok"/);
+
+    expect(() =>
+      inspectNestFixtureWithConfig({
+        operations: {
+          "AuthController.login": {
+            responses: {
+              default: {
+                description: "Default response.",
+              },
+            },
+          },
+        },
+      }),
+    ).toThrow(/Invalid response override status "default"/);
   });
 });

@@ -16,7 +16,11 @@ import type {
 import { cloneOpenApiSchema } from "../internal/clone.js";
 import { findDecorator, extractDecoratorStringArg } from "./controller-discovery.js";
 import type { DiscoveredRoute } from "./route-extractor.js";
-import { extractSwaggerResponses } from "./swagger-compat.js";
+import {
+  extractSwaggerResponses,
+  httpStatusValueFromExpression,
+  literalValue,
+} from "./swagger-compat.js";
 
 /** Default status codes per HTTP method (NestJS convention). */
 const DEFAULT_STATUS: Record<string, number> = {
@@ -50,7 +54,7 @@ export function extractResponse(
 ): ResponseExtractionResult {
   const diagnostics: Diagnostic[] = [];
   const swaggerResponses = extractSwaggerResponses(route.node, checker);
-  const statusCode = defaultStatusCodeForRoute(route);
+  const statusCode = defaultStatusCodeForRoute(route, checker);
   const responses: ResponseModel[] = swaggerResponses.map((response) => ({
     status: response.status,
     description: response.description,
@@ -184,12 +188,15 @@ function inferReturnType(
   return { schema: schemaRef, schemas: generatedSchemas, unresolved: false };
 }
 
-function defaultStatusCodeForRoute(route: DiscoveredRoute): number {
+function defaultStatusCodeForRoute(
+  route: DiscoveredRoute,
+  checker: ts.TypeChecker,
+): number {
   let statusCode = DEFAULT_STATUS[route.method] ?? 200;
 
   const httpCodeDecorator = findDecorator(route.node, "HttpCode");
   if (httpCodeDecorator) {
-    const codeArg = extractHttpCodeArg(httpCodeDecorator);
+    const codeArg = extractHttpCodeArg(httpCodeDecorator, checker);
     if (codeArg !== undefined) {
       statusCode = codeArg;
     }
@@ -434,7 +441,7 @@ function unionSchemaFromType(
     return { ...child, nullable: child.nullable || nullable };
   }
 
-  const oneOf = activeTypes.map((part) =>
+  const oneOfSchemas = activeTypes.map((part) =>
     typeSchemaToOpenApi(
       schemaFromType(
         part,
@@ -448,10 +455,10 @@ function unionSchemaFromType(
     ),
   );
   if (nullable) {
-    oneOf.push({ type: "null" });
+    oneOfSchemas.push({ type: "null" });
   }
 
-  return { type: { kind: "inline", schema: { oneOf } } };
+  return { type: { kind: "inline", schema: { oneOf: oneOfSchemas } } };
 }
 
 function literalSchemaFromType(
@@ -557,10 +564,7 @@ function typeSchemaToOpenApi(schema: TypeSchema): OpenApiSchemaObject {
   const next: Record<string, unknown> = schemaRefToOpenApi(schema.type);
   if (schema.enum !== undefined) next.enum = schema.enum;
   if (schema.format !== undefined) next.format = schema.format;
-  if (schema.nullable && typeof next.type === "string") {
-    next.type = [next.type, "null"];
-  }
-  return next as OpenApiSchemaObject;
+  return (schema.nullable ? applyNullableOpenApi(next) : next) as OpenApiSchemaObject;
 }
 
 function propertiesToOpenApiObject(
@@ -583,10 +587,28 @@ function propertyToOpenApi(property: PropertyModel): OpenApiSchemaObject {
   const next: Record<string, unknown> = schemaRefToOpenApi(property.type);
   if (property.enum !== undefined) next.enum = property.enum;
   if (property.format !== undefined) next.format = property.format;
-  if (property.nullable && typeof next.type === "string") {
-    next.type = [next.type, "null"];
+  return (property.nullable ? applyNullableOpenApi(next) : next) as OpenApiSchemaObject;
+}
+
+function applyNullableOpenApi(schema: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...schema };
+  if (Array.isArray(next.enum) && !next.enum.includes(null)) {
+    next.enum = [...next.enum, null];
   }
-  return next as OpenApiSchemaObject;
+
+  if (typeof next.type === "string") {
+    next.type = [next.type, "null"];
+    return next;
+  }
+
+  if (Array.isArray(next.type)) {
+    next.type = next.type.includes("null")
+      ? next.type
+      : [...next.type, "null"];
+    return next;
+  }
+
+  return { oneOf: [next, { type: "null" }] };
 }
 
 function schemaRefToOpenApi(ref: SchemaRef): OpenApiSchemaObject {
@@ -736,14 +758,16 @@ function firstDeclaration(symbol: ts.Symbol): ts.Declaration | undefined {
 /**
  * Extract numeric argument from @HttpCode(number).
  */
-function extractHttpCodeArg(decorator: ts.Decorator): number | undefined {
+function extractHttpCodeArg(
+  decorator: ts.Decorator,
+  checker: ts.TypeChecker,
+): number | undefined {
   if (!ts.isCallExpression(decorator.expression)) return undefined;
   const args = decorator.expression.arguments;
   if (args.length === 0) return undefined;
 
   const firstArg = args[0];
-  if (ts.isNumericLiteral(firstArg)) {
-    return Number(firstArg.text);
-  }
-  return undefined;
+  const value = literalValue(firstArg, checker);
+  if (typeof value === "number") return value;
+  return httpStatusValueFromExpression(firstArg);
 }

@@ -134,6 +134,101 @@ describe("response extraction review regressions", () => {
     expect(response?.openapi).not.toHaveProperty("schema");
   });
 
+  it("wraps inline Swagger response schemas when isArray is set", () => {
+    const projectRoot = createTempProject(tempRoots, {
+      prefix: "specord-response-review-",
+    });
+    const srcRoot = path.join(projectRoot, "src");
+
+    fs.writeFileSync(
+      path.join(srcRoot, "widgets.controller.ts"),
+      [
+        "declare function Controller(path?: string): ClassDecorator;",
+        "declare function Get(path?: string): MethodDecorator;",
+        "declare function ApiOkResponse(options?: unknown): MethodDecorator;",
+        "@Controller('widgets')",
+        "class WidgetsController {",
+        "  @Get()",
+        "  @ApiOkResponse({",
+        "    isArray: true,",
+        "    schema: { type: 'object', properties: { id: { type: 'string' } } },",
+        "  })",
+        "  list(): unknown {",
+        "    return {};",
+        "  }",
+        "}",
+      ].join("\n"),
+    );
+
+    const model = inspect(
+      resolveConfig({
+        project: path.join(projectRoot, "tsconfig.json"),
+        root: srcRoot,
+      }),
+    );
+
+    const operation = model.operations.find(
+      (item) => item.id === "WidgetsController.list",
+    );
+
+    expect(operation?.responses[0]).toMatchObject({
+      status: 200,
+      schema: {
+        kind: "array",
+        items: {
+          kind: "inline",
+          schema: {
+            type: "object",
+            properties: { id: { type: "string" } },
+          },
+        },
+      },
+      inference: { status: "overridden" },
+    });
+  });
+
+  it("honors symbolic HttpStatus values in HttpCode decorators", () => {
+    const projectRoot = createTempProject(tempRoots, {
+      prefix: "specord-response-review-",
+    });
+    const srcRoot = path.join(projectRoot, "src");
+
+    fs.writeFileSync(
+      path.join(srcRoot, "widgets.controller.ts"),
+      [
+        "declare function Controller(path?: string): ClassDecorator;",
+        "declare function Post(path?: string): MethodDecorator;",
+        "declare function HttpCode(status: unknown): MethodDecorator;",
+        "declare const HttpStatus: { NO_CONTENT: 204 };",
+        "@Controller('widgets')",
+        "class WidgetsController {",
+        "  @Post(':id/archive')",
+        "  @HttpCode(HttpStatus.NO_CONTENT)",
+        "  archive(): Promise<void> {",
+        "    throw new Error('not implemented');",
+        "  }",
+        "}",
+      ].join("\n"),
+    );
+
+    const model = inspect(
+      resolveConfig({
+        project: path.join(projectRoot, "tsconfig.json"),
+        root: srcRoot,
+      }),
+    );
+
+    const operation = model.operations.find(
+      (item) => item.id === "WidgetsController.archive",
+    );
+
+    expect(operation?.responses[0]).toMatchObject({
+      status: 204,
+      schema: { kind: "primitive", type: "null" },
+      inference: { status: "inferred" },
+    });
+  });
+
   it("does not infer a default response when Swagger already documents success", () => {
     const projectRoot = createTempProject(tempRoots, {
       prefix: "specord-response-review-",

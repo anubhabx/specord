@@ -74,6 +74,28 @@ const model: InspectionModel = {
           },
           inference: { status: "inferred" },
         },
+        customer: {
+          type: { kind: "ref", name: "CustomerDto" },
+          nullable: true,
+          inference: { status: "inferred" },
+        },
+        status: {
+          type: { kind: "primitive", type: "string" },
+          enum: ["draft", "paid"],
+          nullable: true,
+          inference: { status: "inferred" },
+        },
+      },
+      inference: { status: "inferred" },
+    },
+    CustomerDto: {
+      name: "CustomerDto",
+      required: ["id"],
+      properties: {
+        id: {
+          type: { kind: "primitive", type: "string" },
+          inference: { status: "inferred" },
+        },
       },
       inference: { status: "inferred" },
     },
@@ -146,6 +168,23 @@ describe("emitOpenApiDocument", () => {
                   label: { type: ["string", "null"] },
                 },
               },
+              customer: {
+                oneOf: [
+                  { $ref: "#/components/schemas/CustomerDto" },
+                  { type: "null" },
+                ],
+              },
+              status: {
+                type: ["string", "null"],
+                enum: ["draft", "paid", null],
+              },
+            },
+          },
+          CustomerDto: {
+            type: "object",
+            required: ["id"],
+            properties: {
+              id: { type: "string" },
             },
           },
         },

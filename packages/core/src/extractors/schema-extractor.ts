@@ -201,11 +201,7 @@ export function extractSchemas(
     });
   }
 
-  for (const [name, schemaInfo] of zodSchemaIndex) {
-    if (!resolvesToZodSchemaExpression(schemaInfo.expression, zodSchemaIndex)) {
-      zodSchemaIndex.delete(name);
-    }
-  }
+  pruneUnresolvableZodSchemas(zodSchemaIndex);
 
   for (const classInfo of exportedClasses) {
     if (schemas[classInfo.className]) continue;
@@ -294,6 +290,24 @@ function resolvesToZodSchemaExpression(
   zodSchemaIndex: Map<string, ZodSchemaInfo>,
 ): boolean {
   return parseZodExpression(expression, zodSchemaIndex, new Set()) !== undefined;
+}
+
+function pruneUnresolvableZodSchemas(
+  zodSchemaIndex: Map<string, ZodSchemaInfo>,
+): void {
+  let removedInPass = true;
+  while (removedInPass) {
+    removedInPass = false;
+
+    for (const [name, schemaInfo] of zodSchemaIndex) {
+      if (resolvesToZodSchemaExpression(schemaInfo.expression, zodSchemaIndex)) {
+        continue;
+      }
+
+      zodSchemaIndex.delete(name);
+      removedInPass = true;
+    }
+  }
 }
 
 function zodInferSchemaName(typeNode: ts.TypeNode): string | undefined {
@@ -890,8 +904,25 @@ function extractClassSchema(
   );
 
   if (mappedTypeResult) {
+    const { properties, required, propDiagnostics } = extractProperties(
+      classInfo.node,
+      checker,
+      classInfo.sourceFile,
+      normalizedRoot,
+      enumIndex,
+    );
     resolving.delete(classInfo.className);
-    return mappedTypeResult;
+    return {
+      schema: {
+        ...mappedTypeResult.schema,
+        properties: {
+          ...cloneProperties(mappedTypeResult.schema.properties),
+          ...properties,
+        },
+        required: [...new Set([...mappedTypeResult.schema.required, ...required])],
+      },
+      diagnostics: [...mappedTypeResult.diagnostics, ...propDiagnostics],
+    };
   }
 
   const baseResult = extractBaseClassSchema(
@@ -1276,7 +1307,7 @@ function cloneProperty(property: PropertyModel): PropertyModel {
     ...property,
     type: cloneSchemaRef(property.type),
     example: cloneJsonValue(property.example),
-    examples: property.examples ? [...property.examples] : undefined,
+    examples: property.examples ? cloneJsonValue(property.examples) : undefined,
     enum: property.enum ? [...property.enum] : undefined,
     constraints: property.constraints ? { ...property.constraints } : undefined,
     inference: { ...property.inference },
@@ -1544,13 +1575,20 @@ function extractNumericArg(
 }
 
 function enumValuesFromDeclaration(decl: ts.EnumDeclaration): unknown[] {
+  let nextNumericValue = 0;
+
   return decl.members.map((member) => {
     if (member.initializer && ts.isStringLiteral(member.initializer)) {
       return member.initializer.text;
     }
     if (member.initializer && ts.isNumericLiteral(member.initializer)) {
-      return Number(member.initializer.text);
+      const value = Number(member.initializer.text);
+      nextNumericValue = value + 1;
+      return value;
     }
-    return member.name.getText(decl.getSourceFile());
+
+    const value = nextNumericValue;
+    nextNumericValue += 1;
+    return value;
   });
 }

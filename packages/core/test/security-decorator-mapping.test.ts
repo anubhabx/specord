@@ -3,12 +3,14 @@
 // ============================================================================
 
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { OperationModel } from "@specord/types";
 import { inspect, resolveConfig } from "../src/index.ts";
-import { cleanupTempProjects } from "./helpers/temp-project.ts";
+import {
+  cleanupTempProjects,
+  createTempProject,
+} from "./helpers/temp-project.ts";
 
 const tempRoots: string[] = [];
 
@@ -18,7 +20,9 @@ afterEach(() => {
 
 describe("security decorator mapping", () => {
   it("maps guarded routes to configured bearer auth and keeps public throttled routes public", () => {
-    const projectRoot = createTempProject();
+    const projectRoot = createTempProject(tempRoots, {
+      prefix: "specord-security-",
+    });
     const srcRoot = path.join(projectRoot, "src");
 
     fs.writeFileSync(
@@ -109,7 +113,9 @@ describe("security decorator mapping", () => {
   });
 
   it("does not guess when guarded routes have multiple non-bearer schemes", () => {
-    const projectRoot = createTempProject();
+    const projectRoot = createTempProject(tempRoots, {
+      prefix: "specord-security-",
+    });
     const srcRoot = path.join(projectRoot, "src");
 
     fs.writeFileSync(
@@ -167,6 +173,56 @@ describe("security decorator mapping", () => {
       }),
     ]);
   });
+
+  it("does not warn when a security scheme is inferred by a later route", () => {
+    const projectRoot = createTempProject(tempRoots, {
+      prefix: "specord-security-",
+    });
+    const srcRoot = path.join(projectRoot, "src");
+
+    fs.writeFileSync(
+      path.join(srcRoot, "projects.controller.ts"),
+      [
+        "declare function Controller(path?: string): ClassDecorator;",
+        "declare function Get(path?: string): MethodDecorator;",
+        "declare function ApiSecurity(name: string): MethodDecorator;",
+        "declare function ApiBearerAuth(name?: string): MethodDecorator;",
+        "@Controller('projects')",
+        "class ProjectsController {",
+        "  @ApiSecurity('sharedAuth')",
+        "  @Get('first')",
+        "  first() {",
+        "    return {};",
+        "  }",
+        "",
+        "  @ApiBearerAuth('sharedAuth')",
+        "  @Get('second')",
+        "  second() {",
+        "    return {};",
+        "  }",
+        "}",
+      ].join("\n"),
+    );
+
+    const model = inspect(
+      resolveConfig({
+        project: path.join(projectRoot, "tsconfig.json"),
+        root: srcRoot,
+      }),
+    );
+
+    const first = getOperation(model.operations, "ProjectsController.first");
+
+    expect(first.openapi?.security).toEqual([{ sharedAuth: [] }]);
+    expectSecurityDiagnostics(first).toEqual([]);
+    expect(model.securitySchemes).toMatchObject({
+      sharedAuth: {
+        type: "http",
+        scheme: "bearer",
+        bearerFormat: "JWT",
+      },
+    });
+  });
 });
 
 function getOperation(
@@ -192,32 +248,4 @@ function expectUnsupportedDecorators(operation: OperationModel) {
       (diagnostic) => diagnostic.code === "EXTRACTOR_UNSUPPORTED_DECORATOR",
     ),
   );
-}
-
-function createTempProject(): string {
-  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "specord-security-"));
-  tempRoots.push(projectRoot);
-  const srcRoot = path.join(projectRoot, "src");
-  fs.mkdirSync(srcRoot);
-
-  fs.writeFileSync(
-    path.join(projectRoot, "tsconfig.json"),
-    JSON.stringify(
-      {
-        compilerOptions: {
-          experimentalDecorators: true,
-          module: "Node16",
-          moduleResolution: "Node16",
-          noEmit: true,
-          strict: true,
-          target: "ES2022",
-        },
-        include: ["src/**/*.ts"],
-      },
-      null,
-      2,
-    ),
-  );
-
-  return projectRoot;
 }

@@ -84,10 +84,17 @@ export function inspect(config: ResolvedConfig): InspectionModel {
   const configuredSecuritySchemeNames = new Set(
     Object.keys(userConfig.securitySchemes ?? {}),
   );
+  const routesByController = controllers.map((controller) =>
+    extractRoutes(controller, globalPrefix, versionPrefix, root),
+  );
 
-  for (const controller of controllers) {
-    const routes = extractRoutes(controller, globalPrefix, versionPrefix, root);
+  for (const routes of routesByController) {
+    for (const route of routes) {
+      Object.assign(inferredSecuritySchemes, route.securitySchemes);
+    }
+  }
 
+  for (const routes of routesByController) {
     for (const route of routes) {
       const operationDiagnostics: Diagnostic[] = [];
 
@@ -161,7 +168,6 @@ export function inspect(config: ResolvedConfig): InspectionModel {
       operationDiagnostics.push(...responseDiagnostics);
 
       let routeSecurity = mergeSecurityRequirements(route.security);
-      Object.assign(inferredSecuritySchemes, route.securitySchemes);
       const hasGuard = route.hasMethodLevelGuard || route.hasClassLevelGuard;
       const hasExplicitAuthDecorator =
         route.hasMethodLevelAuthDecorator || route.hasClassLevelAuthDecorator;
