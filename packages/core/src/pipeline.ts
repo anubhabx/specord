@@ -292,7 +292,7 @@ function defaultConfiguredSecurityRequirement(
     ([, scheme]) =>
       scheme.type === "http" && scheme.scheme?.toLowerCase() === "bearer",
   );
-  const selected = bearerEntry ?? entries[0];
+  const selected = bearerEntry ?? (entries.length === 1 ? entries[0] : undefined);
 
   return selected ? [{ [selected[0]]: [] }] : [];
 }

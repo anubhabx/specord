@@ -3,22 +3,27 @@
 // ============================================================================
 
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { inspect, resolveConfig } from "../src/index.ts";
+import {
+  cleanupTempProjects,
+  createTempProject,
+} from "./helpers/temp-project.ts";
 
 const tempRoots: string[] = [];
 
 afterEach(() => {
-  for (const tempRoot of tempRoots.splice(0)) {
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-  }
+  cleanupTempProjects(tempRoots);
 });
 
 describe("response interface extraction", () => {
   it("creates component schemas for external interface and type-alias return types", () => {
-    const projectRoot = createTempProject();
+    const projectRoot = createTempProject(tempRoots, {
+      prefix: "specord-response-",
+      directories: ["src", "shared"],
+      include: ["src/**/*.ts", "shared/**/*.ts"],
+    });
     const srcRoot = path.join(projectRoot, "src");
     const sharedRoot = path.join(projectRoot, "shared");
 
@@ -112,33 +117,3 @@ describe("response interface extraction", () => {
     });
   });
 });
-
-function createTempProject(): string {
-  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "specord-response-"));
-  tempRoots.push(projectRoot);
-  const srcRoot = path.join(projectRoot, "src");
-  const sharedRoot = path.join(projectRoot, "shared");
-  fs.mkdirSync(srcRoot);
-  fs.mkdirSync(sharedRoot);
-
-  fs.writeFileSync(
-    path.join(projectRoot, "tsconfig.json"),
-    JSON.stringify(
-      {
-        compilerOptions: {
-          experimentalDecorators: true,
-          module: "Node16",
-          moduleResolution: "Node16",
-          noEmit: true,
-          strict: true,
-          target: "ES2022",
-        },
-        include: ["src/**/*.ts", "shared/**/*.ts"],
-      },
-      null,
-      2,
-    ),
-  );
-
-  return projectRoot;
-}

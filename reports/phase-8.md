@@ -20,6 +20,8 @@ The implementation landed in focused slices:
 
 Overall health is green for the implemented scope. The real Semblia benchmark still has unresolved response work, but it is now a tractable follow-up instead of a broad extractor failure.
 
+Follow-up PR review hardening resolved the actionable review findings without changing route parity. The pass tightened Swagger response merging, raw schema harvesting, ambiguous security fallback behavior, benchmark process safety, and shared clone/test scaffolding.
+
 ---
 
 ## What Was Built
@@ -33,6 +35,10 @@ Overall health is green for the implemented scope. The real Semblia benchmark st
 | Decorator mapping | Allowed `@Public`, `@SkipThrottle`, `@Throttle`, `@RequireCapability`, and `@RequireAdmin` without unsupported-decorator noise |
 | Security inference | Mapped guarded/auth-decorated routes to the configured bearer scheme, while keeping public throttled routes unauthenticated |
 | Response schemas | Generated component schemas from exported interfaces and object type aliases reachable through return types, including shared program files outside `--root` |
+| Review response hardening | Preserved inferred success responses when Swagger only documents errors, avoided duplicate inferred defaults when Swagger already documents a 2xx response, surfaced unresolved array item response diagnostics, parsed `HttpStatus.*` response statuses, and carried raw `@ApiResponse({ schema })` literals as inline schemas |
+| Review security hardening | Stopped guessing a configured security scheme when multiple non-bearer schemes are available |
+| Internal maintainability | Consolidated core schema-ref/JSON clone helpers, shared app auth-decorator names, and centralized temp-project test scaffolding |
+| Benchmark stability | Added benchmark inspect timeout, child-process launch error handling, and null stdout/stderr fallback output |
 | Benchmark automation | Added `pnpm benchmark:semblia`, which skips absent private checkout and asserts 107 paths / 136 operations when present |
 | Documentation | Updated V1 spec, Semblia benchmark report, phase report, and snapshot registry files |
 
@@ -49,7 +55,13 @@ Overall health is green for the implemented scope. The real Semblia benchmark st
 | Public throttled routes stay public | Pass | `security-decorator-mapping.test.ts` asserts no OpenAPI security and no unsupported decorator diagnostics |
 | External response interfaces become schemas | Pass | `response-interface-extractor.test.ts` passed |
 | Existing fixture acceptance remains valid | Pass | `pipeline.acceptance.test.ts` passed with response interface test |
+| PR review regressions | Pass | `corepack.cmd pnpm --filter @specord/core exec vitest run test/response-review-regressions.test.ts` (4 tests) |
+| Full core suite | Pass | `corepack.cmd pnpm --filter @specord/core test` (14 files, 61 tests) |
+| OpenAPI emission package | Pass | `corepack.cmd pnpm --filter @specord/openapi test` (1 file, 2 tests) and `corepack.cmd pnpm --filter @specord/openapi build` |
+| Package builds | Pass | `corepack.cmd pnpm --filter @specord/types build`, `corepack.cmd pnpm --filter @specord/core build`, `corepack.cmd pnpm --filter @specord/cli build` |
+| Canonical inspect/generate | Pass | Fresh CLI dist produced 27 operations / 22 paths / 42 schemas from inspect and OpenAPI 3.1.0 with 22 paths / 27 operations / 42 schemas from generate |
 | Semblia route parity | Pass | `corepack.cmd pnpm benchmark:semblia` reported 107 paths and 136 operations |
+| Root Turbo test | Blocked | `corepack.cmd pnpm test` still fails before package tests on Turbo `@specord/types#build` because a nested pnpm 11 install hits `ERR_PNPM_IGNORED_BUILDS` for `esbuild@0.27.7` |
 
 ---
 
@@ -114,7 +126,8 @@ The system still cannot:
 | Focused implementation commits before report | 4 |
 | Implementation files changed before report | 16 |
 | Implementation diff before report | +2069 / -25 |
-| New tests | 5 |
+| Review hardening tracked diff | +321 / -256 before report update, plus new internal helper and regression test files |
+| New tests | 9 initial issue-closure tests plus 4 review regression tests |
 | New dependencies | 0 |
 | Semblia benchmark script | 1 |
 | Canonical fixture diagnostics after snapshot refresh | 25 |
@@ -129,6 +142,10 @@ The system still cannot:
 | Add inline schema refs | Nested Zod objects and unions need a safe carrier without forcing artificial component names |
 | Keep response class/library types conservative | Framework wrappers such as streams should stay unresolved instead of becoming misleading object schemas |
 | Prefer configured HTTP bearer scheme for protected routes | Matches Semblia's common authenticated route behavior and avoids per-operation config noise |
+| Do not infer default success when Swagger already declares a 2xx response | Prevents duplicate 201 responses beside explicit 200/202 Swagger success decorators |
+| Infer success only for Swagger error-only decorators | Preserves typed success schemas for common `@ApiNotFoundResponse()`-plus-return-type patterns |
+| Leave ambiguous non-bearer security unresolved | Avoids silently picking the alphabetically first API-key scheme for guarded routes |
+| Keep clone helpers package-local | Avoids runtime imports from `@specord/types` source while tests resolve that package through built `dist` artifacts |
 | Treat `@Public()` as an auth suppressor | Public throttled routes use guards for rate limiting, not caller authentication |
 | Keep Semblia benchmark opt-in | The target checkout is private/local and should not make normal CI depend on external state |
 | Assert only route parity in benchmark automation | Fidelity counts are reported, but route counts are the stable must-not-regress gate |
@@ -156,3 +173,4 @@ The system still cannot:
 | Route-token diagnostics may reveal aliases rather than missing params | Medium | Investigate the 16 remaining diagnostics before changing behavior |
 | Benchmark checkout may become stale | Medium | Report the target checkout and keep the script's hard gate limited to route parity |
 | Snapshot churn can hide meaningful extractor changes | Low | Registry/changelog/log are still checked by `pipeline.snapshot.test.ts` |
+| Root Turbo test path invokes stale nested pnpm install behavior | Medium | Use direct package builds/tests until the pnpm ignored-builds policy is repaired for Turbo's nested install path |

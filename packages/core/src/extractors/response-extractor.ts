@@ -13,6 +13,7 @@ import type {
   SchemaRef,
   SourceLocation,
 } from "@specord/types";
+import { cloneOpenApiSchema } from "../internal/clone.js";
 import { findDecorator, extractDecoratorStringArg } from "./controller-discovery.js";
 import type { DiscoveredRoute } from "./route-extractor.js";
 import { extractSwaggerResponses } from "./swagger-compat.js";
@@ -48,31 +49,22 @@ export function extractResponse(
   discoveredSchemas: Record<string, SchemaModel>,
 ): ResponseExtractionResult {
   const diagnostics: Diagnostic[] = [];
-  const swaggerResponses = extractSwaggerResponses(route.node);
+  const swaggerResponses = extractSwaggerResponses(route.node, checker);
+  const statusCode = defaultStatusCodeForRoute(route);
+  const responses: ResponseModel[] = swaggerResponses.map((response) => ({
+    status: response.status,
+    description: response.description,
+    schema: response.schema,
+    inference: { status: "overridden" },
+    openapi: response.openapi,
+  }));
 
-  if (swaggerResponses.length > 0) {
+  if (responses.some((response) => response.status >= 200 && response.status < 300)) {
     return {
-      responses: swaggerResponses.map((response) => ({
-        status: response.status,
-        description: response.description,
-        schema: response.schema,
-        inference: { status: "overridden" },
-        openapi: response.openapi,
-      })),
+      responses: responses.sort((left, right) => left.status - right.status),
       diagnostics,
       schemas: {},
     };
-  }
-
-  // Determine status code
-  let statusCode = DEFAULT_STATUS[route.method] ?? 200;
-
-  const httpCodeDecorator = findDecorator(route.node, "HttpCode");
-  if (httpCodeDecorator) {
-    const codeArg = extractHttpCodeArg(httpCodeDecorator);
-    if (codeArg !== undefined) {
-      statusCode = codeArg;
-    }
   }
 
   // Infer return type
@@ -89,20 +81,22 @@ export function extractResponse(
     });
   }
 
-  const responses: ResponseModel[] = [
-    {
-      status: statusCode,
-      description: returnType.unresolved
-        ? "Response schema could not be inferred — provide an override in specord.config.ts"
-        : undefined,
-      schema: returnType.schema,
-      inference: returnType.unresolved
-        ? { status: "unresolved", reason: returnType.reason ?? "Return type not reducible" }
-        : { status: "inferred" },
-    },
-  ];
+  responses.push({
+    status: statusCode,
+    description: returnType.unresolved
+      ? "Response schema could not be inferred — provide an override in specord.config.ts"
+      : undefined,
+    schema: returnType.schema,
+    inference: returnType.unresolved
+      ? { status: "unresolved", reason: returnType.reason ?? "Return type not reducible" }
+      : { status: "inferred" },
+  });
 
-  return { responses, diagnostics, schemas: returnType.schemas };
+  return {
+    responses: responses.sort((left, right) => left.status - right.status),
+    diagnostics,
+    schemas: returnType.schemas,
+  };
 }
 
 interface InferredReturnType {
@@ -177,7 +171,44 @@ function inferReturnType(
     }
   }
 
+  if (schemaRef.kind === "array" && schemaRefContainsUnknown(schemaRef.items)) {
+    const typeString = checker.typeToString(resolved.type);
+    return {
+      schema: schemaRef,
+      schemas: generatedSchemas,
+      unresolved: true,
+      reason: `Return type "${typeString}" includes an array item type that is not a reducible exported shape`,
+    };
+  }
+
   return { schema: schemaRef, schemas: generatedSchemas, unresolved: false };
+}
+
+function defaultStatusCodeForRoute(route: DiscoveredRoute): number {
+  let statusCode = DEFAULT_STATUS[route.method] ?? 200;
+
+  const httpCodeDecorator = findDecorator(route.node, "HttpCode");
+  if (httpCodeDecorator) {
+    const codeArg = extractHttpCodeArg(httpCodeDecorator);
+    if (codeArg !== undefined) {
+      statusCode = codeArg;
+    }
+  }
+
+  return statusCode;
+}
+
+function schemaRefContainsUnknown(ref: SchemaRef): boolean {
+  switch (ref.kind) {
+    case "unknown":
+      return true;
+    case "array":
+      return schemaRefContainsUnknown(ref.items);
+    case "inline":
+    case "ref":
+    case "primitive":
+      return false;
+  }
 }
 
 function resolveReturnPayloadType(
@@ -700,32 +731,6 @@ function sourceLocationForSymbol(
 
 function firstDeclaration(symbol: ts.Symbol): ts.Declaration | undefined {
   return symbol.declarations?.[0] ?? symbol.valueDeclaration;
-}
-
-function cloneOpenApiSchema(schema: OpenApiSchemaObject): OpenApiSchemaObject {
-  if (Array.isArray(schema)) return schema.map(cloneOpenApiSchema) as unknown as OpenApiSchemaObject;
-  if (schema && typeof schema === "object") {
-    return Object.fromEntries(
-      Object.entries(schema).map(([key, value]) => [
-        key,
-        cloneOpenApiValue(value),
-      ]),
-    ) as OpenApiSchemaObject;
-  }
-  return schema;
-}
-
-function cloneOpenApiValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(cloneOpenApiValue);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, child]) => [
-        key,
-        cloneOpenApiValue(child),
-      ]),
-    );
-  }
-  return value;
 }
 
 /**

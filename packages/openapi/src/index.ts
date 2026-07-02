@@ -14,6 +14,7 @@ import type {
   SchemaRef,
   SpecordConfigV1,
 } from "@specord/types";
+import { cloneOpenApiSchema } from "./internal/clone.js";
 
 export type OpenApiDocument = Record<string, unknown> & {
   openapi: "3.1.0";
@@ -311,7 +312,7 @@ function schemaRefBaseToOpenApi(
     case "array":
       return { type: "array", items: schemaRefToOpenApi(ref.items, {}, schemaNames) };
     case "inline":
-      return { ...ref.schema };
+      return cloneOpenApiSchema(ref.schema);
     case "ref":
       if (!schemaNames.has(ref.name)) {
         return {};

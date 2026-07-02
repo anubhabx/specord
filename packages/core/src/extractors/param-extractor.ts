@@ -10,6 +10,7 @@ import type {
   SchemaModel,
   SourceLocation,
 } from "@specord/types";
+import { cloneSchemaRef } from "../internal/clone.js";
 import {
   findDecorator,
   extractDecoratorStringArg,
@@ -183,34 +184,6 @@ function expandDtoParams(
     source,
     inference: { ...property.inference },
   }));
-}
-
-function cloneSchemaRef(type: SchemaRef): SchemaRef {
-  switch (type.kind) {
-    case "array":
-      return { kind: "array", items: cloneSchemaRef(type.items) };
-    case "inline":
-      return { kind: "inline", schema: cloneUnknown(type.schema) as typeof type.schema };
-    case "ref":
-      return { kind: "ref", name: type.name };
-    case "primitive":
-      return { kind: "primitive", type: type.type };
-    case "unknown":
-      return { kind: "unknown" };
-  }
-}
-
-function cloneUnknown(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(cloneUnknown);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, child]) => [
-        key,
-        cloneUnknown(child),
-      ]),
-    );
-  }
-  return value;
 }
 
 /**

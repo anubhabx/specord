@@ -8,13 +8,12 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { OperationModel } from "@specord/types";
 import { inspect, resolveConfig } from "../src/index.ts";
+import { cleanupTempProjects } from "./helpers/temp-project.ts";
 
 const tempRoots: string[] = [];
 
 afterEach(() => {
-  for (const tempRoot of tempRoots.splice(0)) {
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-  }
+  cleanupTempProjects(tempRoots);
 });
 
 describe("security decorator mapping", () => {
@@ -107,6 +106,66 @@ describe("security decorator mapping", () => {
     expect(updateSettings.openapi?.security).toEqual([{ sembliaBearer: [] }]);
     expectSecurityDiagnostics(updateSettings).toEqual([]);
     expectUnsupportedDecorators(updateSettings).toEqual([]);
+  });
+
+  it("does not guess when guarded routes have multiple non-bearer schemes", () => {
+    const projectRoot = createTempProject();
+    const srcRoot = path.join(projectRoot, "src");
+
+    fs.writeFileSync(
+      path.join(srcRoot, "projects.controller.ts"),
+      [
+        "declare function Controller(path?: string): ClassDecorator;",
+        "declare function Get(path?: string): MethodDecorator;",
+        "declare function UseGuards(...guards: unknown[]): ClassDecorator & MethodDecorator;",
+        "declare class UserActorGuard {}",
+        "@Controller('projects')",
+        "@UseGuards(UserActorGuard)",
+        "class ProjectsController {",
+        "  @Get()",
+        "  list() {",
+        "    return {};",
+        "  }",
+        "}",
+      ].join("\n"),
+    );
+
+    const model = inspect(
+      resolveConfig(
+        {
+          project: path.join(projectRoot, "tsconfig.json"),
+          root: srcRoot,
+        },
+        {
+          securitySchemes: {
+            adminKey: {
+              type: "apiKey",
+              in: "header",
+              name: "X-Admin-Key",
+            },
+            internalKey: {
+              type: "apiKey",
+              in: "header",
+              name: "X-Internal-Key",
+            },
+          },
+        },
+      ),
+    );
+
+    const list = getOperation(model.operations, "ProjectsController.list");
+
+    expect(list.security).toEqual({
+      status: "unresolved",
+      reason: "Guard/auth semantics require config override",
+    });
+    expect(list.openapi?.security).toBeUndefined();
+    expectSecurityDiagnostics(list).toEqual([
+      expect.objectContaining({
+        code: "EXTRACTOR_UNRESOLVED_SECURITY",
+        subject: "ProjectsController.list",
+      }),
+    ]);
   });
 });
 

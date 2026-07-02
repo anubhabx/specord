@@ -11,6 +11,11 @@ import type {
   OpenApiSchemaObject,
 } from "@specord/types";
 import {
+  cloneJsonValue,
+  cloneOpenApiSchema,
+  cloneSchemaRef,
+} from "../internal/clone.js";
+import {
   arrayLiteralStrings,
   extractOpenApiMetadataFactory,
   extractSwaggerProperty,
@@ -143,7 +148,7 @@ export function extractSchemas(
           }
 
           const expression = unwrapExpression(declaration.initializer);
-          if (!isZodSchemaExpression(expression)) continue;
+          if (!isPotentialZodSchemaExpression(expression)) continue;
 
           const file = relativeFilePath(sourceFile, normalizedRoot);
           const { line } = sourceFile.getLineAndCharacterOfPosition(
@@ -194,6 +199,12 @@ export function extractSchemas(
 
       enumIndex.set(node.name.text, enumValuesFromDeclaration(node));
     });
+  }
+
+  for (const [name, schemaInfo] of zodSchemaIndex) {
+    if (!resolvesToZodSchemaExpression(schemaInfo.expression, zodSchemaIndex)) {
+      zodSchemaIndex.delete(name);
+    }
   }
 
   for (const classInfo of exportedClasses) {
@@ -265,7 +276,7 @@ function relativeFilePath(
     : filePath;
 }
 
-function isZodSchemaExpression(expression: ts.Expression): boolean {
+function isPotentialZodSchemaExpression(expression: ts.Expression): boolean {
   if (ts.isIdentifier(expression)) return true;
 
   if (!ts.isCallExpression(expression) || !ts.isPropertyAccessExpression(expression.expression)) {
@@ -275,7 +286,14 @@ function isZodSchemaExpression(expression: ts.Expression): boolean {
   const path = propertyAccessPath(expression.expression);
   if (path?.[0] === "z") return true;
 
-  return isZodSchemaExpression(expression.expression.expression);
+  return isPotentialZodSchemaExpression(expression.expression.expression);
+}
+
+function resolvesToZodSchemaExpression(
+  expression: ts.Expression,
+  zodSchemaIndex: Map<string, ZodSchemaInfo>,
+): boolean {
+  return parseZodExpression(expression, zodSchemaIndex, new Set()) !== undefined;
 }
 
 function zodInferSchemaName(typeNode: ts.TypeNode): string | undefined {
@@ -703,7 +721,7 @@ function schemaRefToInlineOpenApi(ref: SchemaRef): OpenApiSchemaObject {
     case "array":
       return { type: "array", items: schemaRefToInlineOpenApi(ref.items) };
     case "inline":
-      return cloneUnknown(ref.schema) as OpenApiSchemaObject;
+      return cloneOpenApiSchema(ref.schema);
     case "ref":
       return { $ref: `#/components/schemas/${ref.name}` };
     case "unknown":
@@ -809,7 +827,7 @@ function cloneZodParsedSchema(schema: ZodParsedSchema): ZodParsedSchema {
     type: cloneSchemaRef(schema.type),
     optional: schema.optional,
     nullable: schema.nullable,
-    default: cloneUnknown(schema.default),
+    default: cloneJsonValue(schema.default),
     enum: schema.enum ? [...schema.enum] : undefined,
     constraints: schema.constraints ? { ...schema.constraints } : undefined,
     object: schema.object ? cloneZodObjectSchema(schema.object) : undefined,
@@ -1257,7 +1275,7 @@ function cloneProperty(property: PropertyModel): PropertyModel {
   return {
     ...property,
     type: cloneSchemaRef(property.type),
-    example: cloneUnknown(property.example),
+    example: cloneJsonValue(property.example),
     examples: property.examples ? [...property.examples] : undefined,
     enum: property.enum ? [...property.enum] : undefined,
     constraints: property.constraints ? { ...property.constraints } : undefined,
@@ -1265,29 +1283,6 @@ function cloneProperty(property: PropertyModel): PropertyModel {
   };
 }
 
-function cloneUnknown(value: unknown): unknown {
-  if (Array.isArray(value)) return [...value];
-  if (value && typeof value === "object") return { ...(value as Record<string, unknown>) };
-  return value;
-}
-
-function cloneSchemaRef(type: SchemaRef): SchemaRef {
-  switch (type.kind) {
-    case "array":
-      return { kind: "array", items: cloneSchemaRef(type.items) };
-    case "inline":
-      return {
-        kind: "inline",
-        schema: cloneUnknown(type.schema) as typeof type.schema,
-      };
-    case "ref":
-      return { kind: "ref", name: type.name };
-    case "primitive":
-      return { kind: "primitive", type: type.type };
-    case "unknown":
-      return { kind: "unknown" };
-  }
-}
 
 /**
  * Extract properties from a class declaration.

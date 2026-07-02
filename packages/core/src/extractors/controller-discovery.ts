@@ -13,6 +13,11 @@ import {
   extractSwaggerTags,
 } from "./swagger-compat.js";
 
+export const AUTH_DECORATOR_NAMES = [
+  "RequireCapability",
+  "RequireAdmin",
+] as const;
+
 /** Represents a discovered NestJS controller class. */
 export interface DiscoveredController {
   /** Class name, e.g. "UsersController". */
@@ -76,10 +81,7 @@ export function discoverControllers(
         },
         hasClassLevelGuard: hasDecorator(node, "UseGuards"),
         isPublic: hasDecorator(node, "Public"),
-        hasClassLevelAuthDecorator: hasAnyDecorator(node, [
-          "RequireCapability",
-          "RequireAdmin",
-        ]),
+        hasClassLevelAuthDecorator: hasAnyDecorator(node, AUTH_DECORATOR_NAMES),
         tags: extractSwaggerTags(node),
         security: security.requirements,
         securitySchemes: security.schemes,

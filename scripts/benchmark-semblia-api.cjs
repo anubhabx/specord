@@ -47,11 +47,21 @@ const result = spawnSync(
     cwd: targetRoot,
     encoding: "utf8",
     maxBuffer: 1024 * 1024 * 128,
+    timeout: 5 * 60 * 1000,
   },
 );
 
+if (result.error) {
+  console.error(`[specord] Failed to run CLI: ${result.error.message}`);
+  process.exit(1);
+}
+
 if (result.status !== 0) {
-  process.stderr.write(result.stderr);
+  process.stderr.write(
+    result.stderr ??
+      result.stdout ??
+      `[specord] CLI exited with status ${result.status ?? "unknown"} and no output.\n`,
+  );
   process.exit(result.status ?? 1);
 }
 

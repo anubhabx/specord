@@ -10,6 +10,7 @@ import type {
 } from "@specord/types";
 import type { DiscoveredController } from "./controller-discovery.js";
 import {
+  AUTH_DECORATOR_NAMES,
   extractDecoratorStringArg,
   findDecorator,
   hasAnyDecorator,
@@ -67,7 +68,7 @@ const KNOWN_DECORATORS = new Set([
   "Controller", "UseGuards", "HttpCode",
   "Param", "Query", "Body", "Headers", "Request", "Req", "Res", "Response",
   "Injectable", "Inject",
-  "Public", "SkipThrottle", "Throttle", "RequireCapability", "RequireAdmin",
+  "Public", "SkipThrottle", "Throttle", ...AUTH_DECORATOR_NAMES,
   "ApiTags", "ApiOperation", "ApiResponse", "ApiOkResponse",
   "ApiCreatedResponse", "ApiAcceptedResponse", "ApiNoContentResponse",
   "ApiBadRequestResponse", "ApiUnauthorizedResponse", "ApiForbiddenResponse",
@@ -118,10 +119,7 @@ export function extractRoutes(
       const operation = extractSwaggerOperation(node);
       const methodTags = extractSwaggerTags(node);
       const methodSecurity = extractSwaggerSecurityMetadata(node);
-      const hasMethodLevelAuthDecorator = hasAnyDecorator(node, [
-        "RequireCapability",
-        "RequireAdmin",
-      ]);
+      const hasMethodLevelAuthDecorator = hasAnyDecorator(node, AUTH_DECORATOR_NAMES);
 
       routes.push({
         id: `${controller.name}.${methodName}`,

@@ -5,6 +5,7 @@
 
 import ts from "typescript";
 import type {
+  OpenApiSchemaObject,
   OpenApiResponseObject,
   OpenApiResponsesObject,
   OpenApiSecurityRequirementObject,
@@ -13,6 +14,7 @@ import type {
   PropertyModel,
   SchemaRef,
 } from "@specord/types";
+import { cloneJsonValue, cloneSchemaRef } from "../internal/clone.js";
 
 const API_RESPONSE_STATUS: Record<string, number> = {
   ApiOkResponse: 200,
@@ -26,6 +28,57 @@ const API_RESPONSE_STATUS: Record<string, number> = {
   ApiConflictResponse: 409,
   ApiUnprocessableEntityResponse: 422,
   ApiInternalServerErrorResponse: 500,
+};
+
+const NEST_HTTP_STATUS: Record<string, number> = {
+  CONTINUE: 100,
+  SWITCHING_PROTOCOLS: 101,
+  PROCESSING: 102,
+  EARLYHINTS: 103,
+  OK: 200,
+  CREATED: 201,
+  ACCEPTED: 202,
+  NON_AUTHORITATIVE_INFORMATION: 203,
+  NO_CONTENT: 204,
+  RESET_CONTENT: 205,
+  PARTIAL_CONTENT: 206,
+  AMBIGUOUS: 300,
+  MOVED_PERMANENTLY: 301,
+  FOUND: 302,
+  SEE_OTHER: 303,
+  NOT_MODIFIED: 304,
+  TEMPORARY_REDIRECT: 307,
+  PERMANENT_REDIRECT: 308,
+  BAD_REQUEST: 400,
+  UNAUTHORIZED: 401,
+  PAYMENT_REQUIRED: 402,
+  FORBIDDEN: 403,
+  NOT_FOUND: 404,
+  METHOD_NOT_ALLOWED: 405,
+  NOT_ACCEPTABLE: 406,
+  PROXY_AUTHENTICATION_REQUIRED: 407,
+  REQUEST_TIMEOUT: 408,
+  CONFLICT: 409,
+  GONE: 410,
+  LENGTH_REQUIRED: 411,
+  PRECONDITION_FAILED: 412,
+  PAYLOAD_TOO_LARGE: 413,
+  URI_TOO_LONG: 414,
+  UNSUPPORTED_MEDIA_TYPE: 415,
+  REQUESTED_RANGE_NOT_SATISFIABLE: 416,
+  EXPECTATION_FAILED: 417,
+  I_AM_A_TEAPOT: 418,
+  MISDIRECTED: 421,
+  UNPROCESSABLE_ENTITY: 422,
+  FAILED_DEPENDENCY: 424,
+  PRECONDITION_REQUIRED: 428,
+  TOO_MANY_REQUESTS: 429,
+  INTERNAL_SERVER_ERROR: 500,
+  NOT_IMPLEMENTED: 501,
+  BAD_GATEWAY: 502,
+  SERVICE_UNAVAILABLE: 503,
+  GATEWAY_TIMEOUT: 504,
+  HTTP_VERSION_NOT_SUPPORTED: 505,
 };
 
 export type SwaggerOperationMetadata = {
@@ -163,6 +216,7 @@ export function extractSwaggerSecurityMetadata(
 
 export function extractSwaggerResponses(
   node: ts.HasDecorators,
+  checker?: ts.TypeChecker,
 ): SwaggerResponseMetadata[] {
   const names = new Set(["ApiResponse", ...Object.keys(API_RESPONSE_STATUS)]);
   const responses: SwaggerResponseMetadata[] = [];
@@ -174,7 +228,7 @@ export function extractSwaggerResponses(
     const options = getFirstObjectArg(decorator);
     const status =
       decoratorName === "ApiResponse"
-        ? readNumberOption(options, "status")
+        ? readNumberOption(options, "status", checker)
         : API_RESPONSE_STATUS[decoratorName];
 
     if (!status) continue;
@@ -427,7 +481,10 @@ function readSchemaFromResponseOptions(
   const isArray = readBooleanOption(options, "isArray") === true;
 
   if (schemaExpr && ts.isObjectLiteralExpression(unwrapExpression(schemaExpr))) {
-    return undefined;
+    const schema = literalValue(schemaExpr);
+    return isRecord(schema)
+      ? { kind: "inline", schema: cloneJsonValue(schema) as OpenApiSchemaObject }
+      : undefined;
   }
 
   const ref = typeExpr ? schemaRefFromExpression(typeExpr) : undefined;
@@ -446,6 +503,7 @@ function responseObjectFromOptions(
   delete base.status;
   delete base.type;
   delete base.isArray;
+  delete base.schema;
 
   if (!schema) {
     return { description, ...base };
@@ -468,9 +526,15 @@ function readStringOption(
 function readNumberOption(
   options: ts.ObjectLiteralExpression | undefined,
   name: string,
+  checker?: ts.TypeChecker,
 ): number | undefined {
-  const value = readOptionValue(options, name);
-  return typeof value === "number" ? value : undefined;
+  const expression = readOptionExpression(options, name);
+  if (!expression) return undefined;
+
+  const value = literalValue(expression, checker);
+  if (typeof value === "number") return value;
+
+  return httpStatusValueFromExpression(expression);
 }
 
 function readBooleanOption(
@@ -530,6 +594,16 @@ function unwrapExpression(expression: ts.Expression): ts.Expression {
     current = current.expression;
   }
   return current;
+}
+
+function httpStatusValueFromExpression(expression: ts.Expression): number | undefined {
+  const unwrapped = unwrapExpression(expression);
+  if (!ts.isPropertyAccessExpression(unwrapped)) return undefined;
+  if (!ts.isIdentifier(unwrapped.expression) || unwrapped.expression.text !== "HttpStatus") {
+    return undefined;
+  }
+
+  return NEST_HTTP_STATUS[unwrapped.name.text];
 }
 
 function namedSchemaRef(name: string): SchemaRef {
@@ -627,32 +701,4 @@ export function queryParamsFromSchema(
     source: sourceParams.source,
     inference: { ...property.inference },
   }));
-}
-
-function cloneSchemaRef(type: SchemaRef): SchemaRef {
-  switch (type.kind) {
-    case "array":
-      return { kind: "array", items: cloneSchemaRef(type.items) };
-    case "inline":
-      return { kind: "inline", schema: cloneUnknown(type.schema) as typeof type.schema };
-    case "ref":
-      return { kind: "ref", name: type.name };
-    case "primitive":
-      return { kind: "primitive", type: type.type };
-    case "unknown":
-      return { kind: "unknown" };
-  }
-}
-
-function cloneUnknown(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(cloneUnknown);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, child]) => [
-        key,
-        cloneUnknown(child),
-      ]),
-    );
-  }
-  return value;
 }

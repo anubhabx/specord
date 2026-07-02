@@ -3,44 +3,26 @@
 // ============================================================================
 
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { inspect, resolveConfig } from "../src/index.ts";
+import {
+  cleanupTempProjects,
+  createTempProject,
+} from "./helpers/temp-project.ts";
 
 const tempRoots: string[] = [];
 
 afterEach(() => {
-  for (const tempRoot of tempRoots.splice(0)) {
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-  }
+  cleanupTempProjects(tempRoots);
 });
 
 describe("path parameter diagnostics", () => {
   it("emits a diagnostic when a path token has no parameter", () => {
-    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "specord-path-"));
-    tempRoots.push(projectRoot);
+    const projectRoot = createTempProject(tempRoots, {
+      prefix: "specord-path-",
+    });
     const srcRoot = path.join(projectRoot, "src");
-    fs.mkdirSync(srcRoot);
-
-    fs.writeFileSync(
-      path.join(projectRoot, "tsconfig.json"),
-      JSON.stringify(
-        {
-          compilerOptions: {
-            experimentalDecorators: true,
-            module: "Node16",
-            moduleResolution: "Node16",
-            noEmit: true,
-            strict: true,
-            target: "ES2022",
-          },
-          include: ["src/**/*.ts"],
-        },
-        null,
-        2,
-      ),
-    );
 
     fs.writeFileSync(
       path.join(srcRoot, "projects.dto.ts"),
