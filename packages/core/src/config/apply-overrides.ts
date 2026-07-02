@@ -233,7 +233,7 @@ function validateOperationOverride(
     for (const status of Object.keys(override.responses)) {
       if (!isValidResponseStatus(status)) {
         throw new Error(
-          `[specord] Invalid response override status "${status}" for operation "${operationId}". Use an HTTP status code from 100 through 599 or "default".`,
+          `[specord] Invalid response override status "${status}" for operation "${operationId}". Use an HTTP status code from 100 through 599.`,
         );
       }
     }

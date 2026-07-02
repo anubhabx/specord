@@ -12,6 +12,7 @@
     "inspect": "node packages/cli/bin/specord.js inspect",
     "generate": "node packages/cli/bin/specord.js generate",
     "serve": "node packages/cli/bin/specord.js serve",
+    "benchmark:semblia": "node scripts/benchmark-semblia-api.cjs",
     "release:dry-run": "pnpm publish -r --dry-run --tag beta --access public --no-git-checks",
     "release:publish": "pnpm publish -r --tag beta --access public --publish-branch main"
   },

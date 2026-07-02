@@ -97,6 +97,7 @@ type SchemaRef =
   | { kind: "ref"; name: string }
   | { kind: "primitive"; type: "string" | "number" | "integer" | "boolean" | "null" | "object" }
   | { kind: "array"; items: SchemaRef }
+  | { kind: "inline"; schema: OpenApiSchemaObject }
   | { kind: "unknown" };
 
 type InferenceState =
@@ -123,6 +124,7 @@ type DiagnosticCode =
   | "EXTRACTOR_TYPE_FALLBACK_ANY"
   | "EXTRACTOR_ROUTE_CONFLICT"
   | "EXTRACTOR_INVALID_PATH_TEMPLATE"
+  | "EXTRACTOR_UNRESOLVED_PATH_PARAM"
   | "EXTRACTOR_UNSUPPORTED_VERSIONING";
 ```
 
@@ -155,7 +157,11 @@ type DiagnosticCode =
 - Request schemas from exported class DTO symbols.
 - `@Query() Dto` query DTOs expanded into individual query parameters from the DTO properties.
 - Query parameter expansion preserves DTO property order, optional/required state, defaults, enum values, formats, and validator-derived constraints.
+- `@Param() Dto` path DTOs expanded into individual required path parameters from DTO properties.
+- Every valid `{token}` in a path SHOULD have a matching emitted OpenAPI path parameter; unmatched tokens MUST emit `EXTRACTOR_UNRESOLVED_PATH_PARAM`.
 - `PartialType(BaseDto)` schemas from the base DTO with all copied fields optional.
+- Exported `z.object(...)` schemas paired with exported `z.infer<typeof schema>` type aliases as named schema components.
+- Zod schema support includes object, string, number, boolean, enum/literal, array, optional, default, nullable, simple literal unions, `strict`, `passthrough`, `partial`, and `extend`.
 - DTO fields including:
   - optional markers,
   - defaults (as default values, not required flags),
@@ -168,10 +174,13 @@ type DiagnosticCode =
   - `POST` -> `201`,
   - all other HTTP methods -> `200`,
   - overridden by `@HttpCode(...)` when present.
+- Response schemas from exported interfaces and object type aliases reachable through controller return types, including return types imported from TypeScript program files outside `--root`.
+- Configured security schemes MAY be applied automatically to guarded or app-auth-decorated routes. A configured HTTP bearer scheme is preferred as the default protected-route requirement when no Swagger security decorator is present.
+- Supported app-level auth decorators include `@Public`, `@SkipThrottle`, `@Throttle`, `@RequireCapability`, and `@RequireAdmin`. Public routes are intentionally unauthenticated unless they also carry an explicit auth decorator.
 
 ### Conservative extraction (MUST resolve as unresolved/warning, not guessed)
 
-- Guard-derived auth semantics.
+- Unmapped guard-derived auth semantics when no Swagger or configured security mapping exists.
 - Return type shape when originating service/data source is `any`.
 - Anonymous object literal response shapes.
 - Interceptor, serializer, exception-filter transformed output.
@@ -192,6 +201,7 @@ When uncertain, extractor MUST emit incomplete-but-valid model data and at least
 | `EXTRACTOR_TYPE_FALLBACK_ANY` | warning | Symbol resolves to `any` | `schemas.<name>` or `operations.<id>` |
 | `EXTRACTOR_ROUTE_CONFLICT` | error | Duplicate `method + path` extracted | `routing` |
 | `EXTRACTOR_INVALID_PATH_TEMPLATE` | error | Invalid `path` parameter template | `routing` |
+| `EXTRACTOR_UNRESOLVED_PATH_PARAM` | warning | Path template token has no matching emitted path parameter | `operations.<id>.params` |
 | `EXTRACTOR_UNSUPPORTED_VERSIONING` | warning | Configured versioning strategy cannot be safely expressed as a V1 path | `routing.versioning` |
 
 ## Fixture-specific acceptance matrix (`examples/nestjs-api`)

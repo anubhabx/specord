@@ -14,6 +14,7 @@ import type {
   SchemaRef,
   SpecordConfigV1,
 } from "@specord/types";
+import { cloneOpenApiSchema } from "./internal/clone.js";
 
 export type OpenApiDocument = Record<string, unknown> & {
   openapi: "3.1.0";
@@ -287,9 +288,7 @@ function schemaRefToOpenApi(
   if (metadata.deprecated !== undefined) next.deprecated = metadata.deprecated;
   if (metadata.readOnly !== undefined) next.readOnly = metadata.readOnly;
   if (metadata.writeOnly !== undefined) next.writeOnly = metadata.writeOnly;
-  if (metadata.nullable === true && typeof next.type === "string") {
-    next.type = [next.type, "null"];
-  }
+  const nullable = metadata.nullable === true;
 
   if (metadata.constraints) {
     for (const [key, value] of Object.entries(metadata.constraints)) {
@@ -298,7 +297,33 @@ function schemaRefToOpenApi(
     }
   }
 
-  return next;
+  return nullable ? applyNullableOpenApi(next) : next;
+}
+
+function applyNullableOpenApi(schema: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...schema };
+  const enumValues = Array.isArray(next.enum) ? next.enum : undefined;
+  if (enumValues && !enumValues.includes(null)) {
+    next.enum = [...enumValues, null];
+  }
+
+  if (typeof next.type === "string") {
+    next.type = [next.type, "null"];
+    return next;
+  }
+
+  if (Array.isArray(next.type)) {
+    next.type = next.type.includes("null")
+      ? next.type
+      : [...next.type, "null"];
+    return next;
+  }
+
+  if (enumValues) {
+    return next;
+  }
+
+  return { oneOf: [next, { type: "null" }] };
 }
 
 function schemaRefBaseToOpenApi(
@@ -310,6 +335,8 @@ function schemaRefBaseToOpenApi(
       return { type: ref.type === "null" ? "null" : ref.type };
     case "array":
       return { type: "array", items: schemaRefToOpenApi(ref.items, {}, schemaNames) };
+    case "inline":
+      return cloneOpenApiSchema(ref.schema);
     case "ref":
       if (!schemaNames.has(ref.name)) {
         return {};

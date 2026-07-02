@@ -36,3 +36,5 @@ export type {
   ApiHistoryConfidence,
   ApiHistoryRecord,
 } from "./history.js";
+
+export { cloneJsonValue } from "./clone.js";

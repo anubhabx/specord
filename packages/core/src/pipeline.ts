@@ -56,8 +56,6 @@ export function inspect(config: ResolvedConfig): InspectionModel {
     root,
   );
 
-  const discoveredSchemaNames = new Set(Object.keys(schemas));
-
   // Step 4: Discover controllers
   const controllers = discoverControllers(sources.controllerFiles, root);
 
@@ -86,10 +84,17 @@ export function inspect(config: ResolvedConfig): InspectionModel {
   const configuredSecuritySchemeNames = new Set(
     Object.keys(userConfig.securitySchemes ?? {}),
   );
+  const routesByController = controllers.map((controller) =>
+    extractRoutes(controller, globalPrefix, versionPrefix, root),
+  );
 
-  for (const controller of controllers) {
-    const routes = extractRoutes(controller, globalPrefix, versionPrefix, root);
+  for (const routes of routesByController) {
+    for (const route of routes) {
+      Object.assign(inferredSecuritySchemes, route.securitySchemes);
+    }
+  }
 
+  for (const routes of routesByController) {
     for (const route of routes) {
       const operationDiagnostics: Diagnostic[] = [];
 
@@ -126,22 +131,56 @@ export function inspect(config: ResolvedConfig): InspectionModel {
 
       // Extract parameters
       const { params, requestBody } = extractParams(route, checker, root, schemas);
+      const emittedPathParams = new Set(
+        params
+          .filter((param) => param.in === "path")
+          .map((param) => param.name),
+      );
+      for (const paramName of pathParams) {
+        if (emittedPathParams.has(paramName)) continue;
+
+        operationDiagnostics.push({
+          severity: "warning",
+          code: "EXTRACTOR_UNRESOLVED_PATH_PARAM",
+          message: `Path template parameter "{${paramName}}" in ${route.path} has no matching emitted path parameter`,
+          source: route.location,
+          subject: route.id,
+          suggestedOverridePath: `operations.${route.id}.params`,
+        });
+      }
 
       // Extract response
-      const { responses, diagnostics: responseDiagnostics } = extractResponse(
+      const {
+        responses,
+        diagnostics: responseDiagnostics,
+        schemas: responseSchemas,
+      } = extractResponse(
         route,
         checker,
         root,
-        discoveredSchemaNames,
+        schemas,
       );
+      for (const [schemaName, responseSchema] of Object.entries(responseSchemas)) {
+        if (!schemas[schemaName]) {
+          schemas[schemaName] = responseSchema;
+        }
+      }
       operationDiagnostics.push(...responseDiagnostics);
 
-      const routeSecurity = mergeSecurityRequirements(route.security);
-      Object.assign(inferredSecuritySchemes, route.securitySchemes);
+      let routeSecurity = mergeSecurityRequirements(route.security);
       const hasGuard = route.hasMethodLevelGuard || route.hasClassLevelGuard;
+      const hasExplicitAuthDecorator = route.isPublic
+        ? route.hasMethodLevelAuthDecorator
+        : route.hasMethodLevelAuthDecorator || route.hasClassLevelAuthDecorator;
+      const hasAuth = hasExplicitAuthDecorator || (hasGuard && !route.isPublic);
+      if (routeSecurity.length === 0 && hasAuth) {
+        routeSecurity = defaultConfiguredSecurityRequirement(
+          userConfig.securitySchemes,
+        );
+      }
 
       // Security diagnostics
-      if (hasGuard && routeSecurity.length === 0) {
+      if (hasAuth && routeSecurity.length === 0) {
         operationDiagnostics.push(
           unresolvedSecurityDiagnostic(route.id, route.location),
         );
@@ -185,7 +224,7 @@ export function inspect(config: ResolvedConfig): InspectionModel {
         responses,
         security: routeSecurity.length > 0
           ? { status: "overridden" }
-          : hasGuard
+          : hasAuth
             ? { status: "unresolved", reason: "Guard/auth semantics require config override" }
             : { status: "inferred" },
         diagnostics: operationDiagnostics,
@@ -248,6 +287,21 @@ function mergeSecurityRequirements(
   }
 
   return merged;
+}
+
+function defaultConfiguredSecurityRequirement(
+  schemes: SpecordConfigV1["securitySchemes"] | undefined,
+): OpenApiSecurityRequirementObject[] {
+  const entries = Object.entries(schemes ?? {}).sort(([left], [right]) =>
+    left.localeCompare(right),
+  );
+  const bearerEntry = entries.find(
+    ([, scheme]) =>
+      scheme.type === "http" && scheme.scheme?.toLowerCase() === "bearer",
+  );
+  const selected = bearerEntry ?? (entries.length === 1 ? entries[0] : undefined);
+
+  return selected ? [{ [selected[0]]: [] }] : [];
 }
 
 function missingSecuritySchemes(

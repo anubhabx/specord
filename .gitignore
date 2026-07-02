@@ -159,3 +159,6 @@ packages/**/*.tsbuildinfo
 # Graphify
 .graphify/
 graphify-out/
+
+# Local benchmark checkouts and generated benchmark artifacts
+testing/

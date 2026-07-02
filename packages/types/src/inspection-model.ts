@@ -42,6 +42,7 @@ export type SchemaRef =
   | { kind: "ref"; name: string }
   | { kind: "primitive"; type: PrimitiveType }
   | { kind: "array"; items: SchemaRef }
+  | { kind: "inline"; schema: OpenApiSchemaObject }
   | { kind: "unknown" };
 
 /** Primitive types supported in the internal model. */

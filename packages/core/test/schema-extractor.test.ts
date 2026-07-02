@@ -18,6 +18,53 @@ afterEach(() => {
 });
 
 describe("extractSchemas mapped type fallbacks", () => {
+  it("merges subclass properties declared on mapped type DTOs", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "specord-schema-"));
+    tempRoots.push(root);
+
+    const sourcePath = path.join(root, "mapped.dto.ts");
+    fs.writeFileSync(
+      sourcePath,
+      [
+        "declare function PartialType<T>(base: T): T;",
+        "export class CreateThingDto {",
+        "  name: string;",
+        "}",
+        "export class UpdateThingDto extends PartialType(CreateThingDto) {",
+        "  reason: string;",
+        "}",
+      ].join("\n"),
+    );
+
+    const program = ts.createProgram([sourcePath], {
+      module: ts.ModuleKind.Node16,
+      moduleResolution: ts.ModuleResolutionKind.Node16,
+      noEmit: true,
+      target: ts.ScriptTarget.ES2022,
+    });
+
+    const sourceFile = program.getSourceFile(sourcePath);
+    expect(sourceFile).toBeDefined();
+
+    const result = extractSchemas(
+      [sourceFile!],
+      program.getTypeChecker(),
+      root,
+    );
+
+    expect(result.schemas.UpdateThingDto).toMatchObject({
+      properties: {
+        name: expect.objectContaining({
+          type: { kind: "primitive", type: "string" },
+        }),
+        reason: expect.objectContaining({
+          type: { kind: "primitive", type: "string" },
+        }),
+      },
+      required: ["reason"],
+    });
+  });
+
   it("does not mark mapped types inferred when their base cannot be resolved", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "specord-schema-"));
     tempRoots.push(root);
@@ -69,5 +116,200 @@ describe("extractSchemas mapped type fallbacks", () => {
         .map((diagnostic) => diagnostic.subject)
         .sort(),
     ).toEqual(["PickedThingDto", "UpdatePickedThingDto"]);
+  });
+
+  it("extracts implicit numeric enum values", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "specord-schema-"));
+    tempRoots.push(root);
+
+    const sourcePath = path.join(root, "enum.dto.ts");
+    fs.writeFileSync(
+      sourcePath,
+      [
+        "export enum WidgetState {",
+        "  Draft,",
+        "  Published = 4,",
+        "  Archived,",
+        "}",
+        "export class WidgetDto {",
+        "  state: WidgetState;",
+        "}",
+      ].join("\n"),
+    );
+
+    const program = ts.createProgram([sourcePath], {
+      module: ts.ModuleKind.Node16,
+      moduleResolution: ts.ModuleResolutionKind.Node16,
+      noEmit: true,
+      target: ts.ScriptTarget.ES2022,
+    });
+
+    const sourceFile = program.getSourceFile(sourcePath);
+    expect(sourceFile).toBeDefined();
+
+    const result = extractSchemas(
+      [sourceFile!],
+      program.getTypeChecker(),
+      root,
+    );
+
+    expect(result.schemas.WidgetDto.properties.state).toMatchObject({
+      type: { kind: "primitive", type: "number" },
+      enum: [0, 4, 5],
+    });
+  });
+});
+
+describe("extractSchemas Zod DTO aliases", () => {
+  it("maps exported z.infer aliases to schema components", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "specord-zod-schema-"));
+    tempRoots.push(root);
+
+    const sourcePath = path.join(root, "widgets.dto.ts");
+    fs.writeFileSync(
+      sourcePath,
+      [
+        "declare const z: any;",
+        "export const widgetStatusSchema = z.enum(['draft', 'published']);",
+        "const widgetSettingsSchema = z.object({",
+        "  enabled: z.boolean().default(true),",
+        "  label: z.string().nullable().optional(),",
+        "  state: widgetStatusSchema.nullable(),",
+        "  mixed: z.union([z.string(), z.number()]).nullable(),",
+        "}).passthrough();",
+        "export const createWidgetBodySchema = z.object({",
+        "  title: z.string().trim().min(2).max(120),",
+        "  retries: z.coerce.number().int().min(1).max(10).default(1),",
+        "  status: widgetStatusSchema.optional(),",
+        "  maybeStatus: widgetStatusSchema.nullable().optional(),",
+        "  tags: z.array(z.string().trim()).default([]),",
+        "  mode: z.union([z.literal('embed'), z.literal('wall')]).optional(),",
+        "  maybeMode: z.union([z.literal('embed'), z.literal('wall')]).nullable().optional(),",
+        "  settings: widgetSettingsSchema.optional(),",
+        "  notes: z.string().nullable(),",
+        "}).strict();",
+        "export type CreateWidgetBodyDto = z.infer<typeof createWidgetBodySchema>;",
+      ].join("\n"),
+    );
+
+    const program = ts.createProgram([sourcePath], {
+      module: ts.ModuleKind.Node16,
+      moduleResolution: ts.ModuleResolutionKind.Node16,
+      noEmit: true,
+      target: ts.ScriptTarget.ES2022,
+    });
+
+    const sourceFile = program.getSourceFile(sourcePath);
+    expect(sourceFile).toBeDefined();
+
+    const result = extractSchemas(
+      [sourceFile!],
+      program.getTypeChecker(),
+      root,
+    );
+
+    expect(Object.keys(result.schemas)).toEqual(["CreateWidgetBodyDto"]);
+    expect(result.schemas.CreateWidgetBodyDto).toMatchObject({
+      name: "CreateWidgetBodyDto",
+      required: ["title", "notes"],
+      properties: {
+        title: {
+          type: { kind: "primitive", type: "string" },
+          constraints: { minLength: 2, maxLength: 120 },
+        },
+        retries: {
+          type: { kind: "primitive", type: "integer" },
+          default: 1,
+          constraints: { minimum: 1, maximum: 10 },
+        },
+        status: {
+          type: { kind: "primitive", type: "string" },
+          enum: ["draft", "published"],
+        },
+        maybeStatus: {
+          type: { kind: "primitive", type: "string" },
+          enum: ["draft", "published"],
+          nullable: true,
+        },
+        tags: {
+          type: { kind: "array", items: { kind: "primitive", type: "string" } },
+          default: [],
+        },
+        mode: {
+          type: { kind: "primitive", type: "string" },
+          enum: ["embed", "wall"],
+        },
+        maybeMode: {
+          type: { kind: "primitive", type: "string" },
+          enum: ["embed", "wall"],
+          nullable: true,
+        },
+        settings: {
+          type: {
+            kind: "inline",
+            schema: {
+              type: "object",
+              additionalProperties: true,
+              properties: {
+                enabled: { type: "boolean", default: true },
+                label: { type: ["string", "null"] },
+                state: {
+                  type: ["string", "null"],
+                  enum: ["draft", "published", null],
+                },
+                mixed: {
+                  oneOf: [
+                    { type: "string" },
+                    { type: "number" },
+                    { type: "null" },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        notes: {
+          type: { kind: "primitive", type: "string" },
+          nullable: true,
+        },
+      },
+      inference: { status: "inferred" },
+    });
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it("prunes aliases that transitively depend on invalid zod schemas", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "specord-zod-schema-"));
+    tempRoots.push(root);
+
+    const sourcePath = path.join(root, "widgets.dto.ts");
+    fs.writeFileSync(
+      sourcePath,
+      [
+        "declare const z: any;",
+        "export const widgetSchema = sharedWidgetSchema;",
+        "const sharedWidgetSchema = z.notSupported();",
+        "export type WidgetDto = z.infer<typeof widgetSchema>;",
+      ].join("\n"),
+    );
+
+    const program = ts.createProgram([sourcePath], {
+      module: ts.ModuleKind.Node16,
+      moduleResolution: ts.ModuleResolutionKind.Node16,
+      noEmit: true,
+      target: ts.ScriptTarget.ES2022,
+    });
+
+    const sourceFile = program.getSourceFile(sourcePath);
+    expect(sourceFile).toBeDefined();
+
+    const result = extractSchemas(
+      [sourceFile!],
+      program.getTypeChecker(),
+      root,
+    );
+
+    expect(result.schemas).toEqual({});
+    expect(result.diagnostics).toEqual([]);
   });
 });
