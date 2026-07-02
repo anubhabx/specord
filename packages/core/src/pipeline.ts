@@ -169,8 +169,9 @@ export function inspect(config: ResolvedConfig): InspectionModel {
 
       let routeSecurity = mergeSecurityRequirements(route.security);
       const hasGuard = route.hasMethodLevelGuard || route.hasClassLevelGuard;
-      const hasExplicitAuthDecorator =
-        route.hasMethodLevelAuthDecorator || route.hasClassLevelAuthDecorator;
+      const hasExplicitAuthDecorator = route.isPublic
+        ? route.hasMethodLevelAuthDecorator
+        : route.hasMethodLevelAuthDecorator || route.hasClassLevelAuthDecorator;
       const hasAuth = hasExplicitAuthDecorator || (hasGuard && !route.isPublic);
       if (routeSecurity.length === 0 && hasAuth) {
         routeSecurity = defaultConfiguredSecurityRequirement(

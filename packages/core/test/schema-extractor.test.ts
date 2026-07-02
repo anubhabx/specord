@@ -174,13 +174,17 @@ describe("extractSchemas Zod DTO aliases", () => {
         "const widgetSettingsSchema = z.object({",
         "  enabled: z.boolean().default(true),",
         "  label: z.string().nullable().optional(),",
+        "  state: widgetStatusSchema.nullable(),",
+        "  mixed: z.union([z.string(), z.number()]).nullable(),",
         "}).passthrough();",
         "export const createWidgetBodySchema = z.object({",
         "  title: z.string().trim().min(2).max(120),",
         "  retries: z.coerce.number().int().min(1).max(10).default(1),",
         "  status: widgetStatusSchema.optional(),",
+        "  maybeStatus: widgetStatusSchema.nullable().optional(),",
         "  tags: z.array(z.string().trim()).default([]),",
         "  mode: z.union([z.literal('embed'), z.literal('wall')]).optional(),",
+        "  maybeMode: z.union([z.literal('embed'), z.literal('wall')]).nullable().optional(),",
         "  settings: widgetSettingsSchema.optional(),",
         "  notes: z.string().nullable(),",
         "}).strict();",
@@ -222,6 +226,11 @@ describe("extractSchemas Zod DTO aliases", () => {
           type: { kind: "primitive", type: "string" },
           enum: ["draft", "published"],
         },
+        maybeStatus: {
+          type: { kind: "primitive", type: "string" },
+          enum: ["draft", "published"],
+          nullable: true,
+        },
         tags: {
           type: { kind: "array", items: { kind: "primitive", type: "string" } },
           default: [],
@@ -229,6 +238,11 @@ describe("extractSchemas Zod DTO aliases", () => {
         mode: {
           type: { kind: "primitive", type: "string" },
           enum: ["embed", "wall"],
+        },
+        maybeMode: {
+          type: { kind: "primitive", type: "string" },
+          enum: ["embed", "wall"],
+          nullable: true,
         },
         settings: {
           type: {
@@ -239,6 +253,17 @@ describe("extractSchemas Zod DTO aliases", () => {
               properties: {
                 enabled: { type: "boolean", default: true },
                 label: { type: ["string", "null"] },
+                state: {
+                  type: ["string", "null"],
+                  enum: ["draft", "published", null],
+                },
+                mixed: {
+                  oneOf: [
+                    { type: "string" },
+                    { type: "number" },
+                    { type: "null" },
+                  ],
+                },
               },
             },
           },

@@ -700,8 +700,8 @@ function zodParsedToOpenApi(schema: ZodParsedSchema): OpenApiSchemaObject {
 
   if (schema.default !== undefined) next.default = schema.default;
   if (schema.enum !== undefined) next.enum = schema.enum;
-  if (schema.nullable && typeof next.type === "string") {
-    next.type = [next.type, "null"];
+  if (schema.nullable) {
+    applyNullableOpenApiSchema(next);
   }
 
   if (schema.constraints) {
@@ -713,6 +713,39 @@ function zodParsedToOpenApi(schema: ZodParsedSchema): OpenApiSchemaObject {
   }
 
   return next as OpenApiSchemaObject;
+}
+
+function applyNullableOpenApiSchema(schema: Record<string, unknown>): void {
+  if (Array.isArray(schema.enum) && !schema.enum.includes(null)) {
+    schema.enum = [...schema.enum, null];
+  }
+
+  if (Array.isArray(schema.oneOf)) {
+    schema.oneOf = schema.oneOf.some(isNullOnlySchema)
+      ? schema.oneOf
+      : [...schema.oneOf, { type: "null" }];
+    return;
+  }
+
+  if (typeof schema.type === "string") {
+    if (schema.type !== "null") {
+      schema.type = [schema.type, "null"];
+    }
+    return;
+  }
+
+  if (Array.isArray(schema.type) && !schema.type.includes("null")) {
+    schema.type = [...schema.type, "null"];
+  }
+}
+
+function isNullOnlySchema(value: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "type" in value &&
+    value.type === "null"
+  );
 }
 
 function schemaRefWithMetadata(schema: ZodParsedSchema): SchemaRef {

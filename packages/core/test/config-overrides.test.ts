@@ -65,6 +65,34 @@ describe("config override application", () => {
     ).toBe(0);
   });
 
+  it("accepts OpenAPI default response overrides", () => {
+    const model = inspectNestFixtureWithConfig({
+      operations: {
+        "ProjectsController.exportCsv": {
+          responses: {
+            default: {
+              description: "Error response.",
+            },
+          },
+        },
+      },
+    });
+
+    const operation = getOperation(model, "ProjectsController.exportCsv");
+
+    expect(operation.responses).toEqual([]);
+    expect(operation.openapi?.responses).toEqual({
+      default: {
+        description: "Error response.",
+      },
+    });
+    expect(
+      operation.diagnostics.some(
+        (diag) => diag.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(false);
+  });
+
   it("applies security scheme and operation security overrides", () => {
     const model = inspectNestFixtureWithConfig({
       securitySchemes: {
@@ -215,13 +243,13 @@ describe("config override application", () => {
         operations: {
           "AuthController.login": {
             responses: {
-              default: {
-                description: "Default response.",
+              "99": {
+                description: "Too low.",
               },
             },
           },
         },
       }),
-    ).toThrow(/Invalid response override status "default"/);
+    ).toThrow(/Invalid response override status "99"/);
   });
 });

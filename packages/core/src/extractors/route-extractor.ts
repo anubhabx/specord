@@ -120,6 +120,10 @@ export function extractRoutes(
       const methodTags = extractSwaggerTags(node);
       const methodSecurity = extractSwaggerSecurityMetadata(node);
       const hasMethodLevelAuthDecorator = hasAnyDecorator(node, AUTH_DECORATOR_NAMES);
+      const isPublic = controller.isPublic || hasDecorator(node, "Public");
+      const routeSecurity = isPublic && !hasMethodLevelAuthDecorator
+        ? methodSecurity.requirements
+        : [...controller.security, ...methodSecurity.requirements];
 
       routes.push({
         id: `${controller.name}.${methodName}`,
@@ -132,7 +136,7 @@ export function extractRoutes(
         location: { file: relativePath, line: line + 1 },
         hasMethodLevelGuard: hasDecorator(node, "UseGuards"),
         hasClassLevelGuard: controller.hasClassLevelGuard,
-        isPublic: controller.isPublic || hasDecorator(node, "Public"),
+        isPublic,
         hasMethodLevelAuthDecorator,
         hasClassLevelAuthDecorator: controller.hasClassLevelAuthDecorator,
         unsupportedDecorators: unsupported,
@@ -140,7 +144,7 @@ export function extractRoutes(
         summary: operation.summary,
         description: operation.description,
         tags: [...controller.tags, ...methodTags],
-        security: [...controller.security, ...methodSecurity.requirements],
+        security: routeSecurity,
         securitySchemes: {
           ...controller.securitySchemes,
           ...methodSecurity.schemes,

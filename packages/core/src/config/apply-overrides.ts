@@ -261,6 +261,10 @@ function cloneSecurityRequirements(
 }
 
 function isValidResponseStatus(status: string): boolean {
+  if (status === "default") {
+    return true;
+  }
+
   if (!/^[1-5][0-9][0-9]$/.test(status)) {
     return false;
   }

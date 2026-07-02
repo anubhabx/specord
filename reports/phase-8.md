@@ -1,7 +1,7 @@
 # Phase 8 Session Report - Semblia Swagger Replacement Gap Closure
 
 **Phase:** 8 - Production API fidelity against the Semblia benchmark
-**Date:** 2026-07-02
+**Date:** 2026-07-03
 **Status:** Healthy. Route parity remains intact, the largest schema/security/parameter gaps are closed, and the remaining work is narrowed to response families and path-param outliers.
 
 ---
@@ -20,7 +20,7 @@ The implementation landed in focused slices:
 
 Overall health is green for the implemented scope. The real Semblia benchmark still has unresolved response work, but it is now a tractable follow-up instead of a broad extractor failure.
 
-Follow-up PR review hardening resolved the actionable review findings without changing route parity. The pass tightened Swagger response merging, raw schema harvesting, ambiguous security fallback behavior, benchmark process safety, shared clone/test scaffolding, zod pruning, mapped-type subclass members, parameter decorator edge cases, `HttpStatus.*` status handling, and nullable OpenAPI emission. A stricter zod/object unresolved pass was rejected after the benchmark proved it would regress the production-server surface.
+Follow-up PR review hardening resolved the actionable review findings without changing route parity. The pass tightened Swagger response merging, raw schema harvesting, ambiguous security fallback behavior, benchmark process safety, shared clone/test scaffolding, zod pruning, mapped-type subclass members, parameter decorator edge cases, `HttpStatus.*` status handling, `default` response override validation, public-route security inheritance, and nullable OpenAPI emission. A stricter zod/object unresolved pass was rejected after the benchmark proved it would regress the production-server surface.
 
 ---
 
@@ -37,8 +37,8 @@ Follow-up PR review hardening resolved the actionable review findings without ch
 | Response schemas | Generated component schemas from exported interfaces and object type aliases reachable through return types, including shared program files outside `--root` |
 | Review response hardening | Preserved inferred success responses when Swagger only documents errors, avoided duplicate inferred defaults when Swagger already documents a 2xx response, surfaced unresolved array item response diagnostics, parsed `HttpStatus.*` response statuses, and carried raw `@ApiResponse({ schema })` literals as inline schemas |
 | Review security hardening | Stopped guessing a configured security scheme when multiple non-bearer schemes are available |
-| Review extractor hardening | Added fixed-point zod schema pruning, mapped-type subclass property merging, implicit numeric enum extraction, named-query pipe support, property-scoped body skipping, generic `Array<T>` body resolution, symbolic `@HttpCode(HttpStatus.*)` handling, order-independent inferred security scheme inventory, and default-response override rejection |
-| OpenAPI/nullability hardening | Preserved nullable `$ref` and enum schemas in internal response-generated OpenAPI fragments and final OpenAPI emission |
+| Review extractor hardening | Added fixed-point zod schema pruning, mapped-type subclass property merging, implicit numeric enum extraction, named-query pipe support, property-scoped body skipping, generic `Array<T>` body resolution, symbolic `@HttpCode(HttpStatus.*)` handling, order-independent inferred security scheme inventory, and `default` response override acceptance |
+| OpenAPI/nullability hardening | Preserved nullable `$ref`, enum, and `oneOf` schemas in internal response-generated OpenAPI fragments, Zod inline schemas, and final OpenAPI emission |
 | Internal maintainability | Shared the JSON clone helper from `@specord/types`, kept core schema-ref clone helpers package-local, shared app auth-decorator names, and centralized temp-project test scaffolding |
 | Benchmark stability | Added benchmark inspect timeout, child-process launch error handling, and null stdout/stderr fallback output |
 | Benchmark automation | Added `pnpm benchmark:semblia`, which skips absent private checkout and asserts 107 paths / 136 operations when present |
@@ -54,15 +54,15 @@ Follow-up PR review hardening resolved the actionable review findings without ch
 | Zod alias schemas extract | Pass | `schema-extractor.test.ts` passed in focused runs |
 | Path DTO params expand | Pass | `param-extractor.test.ts` and `path-param-diagnostics.test.ts` passed in focused runs |
 | Configured guard security maps | Pass | `security-decorator-mapping.test.ts` passed |
-| Public throttled routes stay public | Pass | `security-decorator-mapping.test.ts` asserts no OpenAPI security and no unsupported decorator diagnostics |
+| Public throttled routes stay public | Pass | `security-decorator-mapping.test.ts` asserts no OpenAPI security and no unsupported decorator diagnostics even with inherited class-level Swagger security |
 | External response interfaces become schemas | Pass | `response-interface-extractor.test.ts` passed |
 | Existing fixture acceptance remains valid | Pass | `pipeline.acceptance.test.ts` passed with response interface test |
 | PR review regressions | Pass | `corepack pnpm --filter @specord/core test` includes `response-review-regressions.test.ts` (6 tests) |
-| Full core suite | Pass | `corepack pnpm --filter @specord/core test` (14 files, 69 tests) |
+| Full core suite | Pass | `corepack pnpm --filter @specord/core test` (14 files, 70 tests) |
 | OpenAPI emission package | Pass | `corepack.cmd pnpm --filter @specord/openapi test` (1 file, 2 tests) and `corepack.cmd pnpm --filter @specord/openapi build` |
 | Package builds | Pass | `corepack pnpm --filter @specord/types build`, `@specord/core build`, `@specord/cli build`, `@specord/nestjs build`, `@specord/openapi build`, and `@specord/ui build` individually passed |
 | Canonical inspect/generate | Pass | Fresh CLI dist produced 27 operations / 22 paths / 42 schemas from inspect and OpenAPI 3.1.0 with 22 paths / 27 operations / 42 schemas from generate |
-| Semblia route parity | Pass | `corepack pnpm benchmark:semblia` reported 107 paths / 136 operations / 131 schemas / 78 unresolved responses |
+| Semblia route parity | Pass | `corepack pnpm benchmark:semblia` reported 107 paths / 136 operations / 155 schemas / 78 unresolved responses |
 | Root Turbo test | Blocked | `corepack.cmd pnpm test` still fails before package tests on Turbo `@specord/types#build` because a nested pnpm 11 install hits `ERR_PNPM_IGNORED_BUILDS` for `esbuild@0.27.7` |
 
 ---
@@ -89,7 +89,7 @@ Semblia benchmark: `testing/semblia-api/apps/api_v2`
 | --- | ---: | ---: |
 | Paths | 107 | 107 |
 | Operations | 136 | 136 |
-| Schemas | 0 | 131 |
+| Schemas | 0 | 155 |
 | Query params | 15 | 37 |
 | Path params | 1 | 123 |
 | Request bodies | 44 | 44 |
@@ -129,11 +129,12 @@ The system still cannot:
 | Implementation files changed before report | 16 |
 | Implementation diff before report | +2069 / -25 |
 | Review hardening tracked diff | +600 / -130 class before report update, plus shared clone helper and regression coverage |
-| New tests | 9 initial issue-closure tests plus 10 review/regression hardening tests |
+| New tests | 9 initial issue-closure tests plus 13 review/regression hardening tests |
 | New dependencies | 0 |
 | Semblia benchmark script | 1 |
 | Canonical fixture diagnostics after snapshot refresh | 25 |
 | Semblia diagnostics after issue #1 work | 94 |
+| Semblia schemas after review hardening | 155 |
 
 ---
 
@@ -149,7 +150,7 @@ The system still cannot:
 | Leave ambiguous non-bearer security unresolved | Avoids silently picking the alphabetically first API-key scheme for guarded routes |
 | Share JSON clone helper from `@specord/types` | Removes duplicate JSON clone logic while keeping schema-ref clone helpers package-local |
 | Preserve tolerant zod object parsing | Fixed-point pruning now removes transitively invalid schema aliases, but unsupported individual zod object members are still skipped so the production-server benchmark keeps its valid extracted surface |
-| Reject `default` response overrides for now | `ResponseModel.status` is numeric, so validation now rejects unsupported `default` overrides instead of accepting and silently dropping them |
+| Accept `default` response overrides | `ResponseModel.status` remains numeric, while `operation.openapi.responses.default` preserves the OpenAPI carrier for emission |
 | Treat `@Public()` as an auth suppressor | Public throttled routes use guards for rate limiting, not caller authentication |
 | Keep Semblia benchmark opt-in | The target checkout is private/local and should not make normal CI depend on external state |
 | Assert only route parity in benchmark automation | Fidelity counts are reported, but route counts are the stable must-not-regress gate |
