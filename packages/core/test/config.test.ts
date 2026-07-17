@@ -200,4 +200,17 @@ describe("config validation", () => {
       } as any),
     ).toThrow(/inference\.responses\.anonymousObjects.*off.*safe/);
   });
+
+  it("rejects cyclic anonymous response inference modes with a config error", () => {
+    const anonymousObjects: { self?: unknown } = {};
+    anonymousObjects.self = anonymousObjects;
+
+    expect(() =>
+      validateConfig({
+        inference: {
+          responses: { anonymousObjects },
+        },
+      } as any),
+    ).toThrow(/inference\.responses\.anonymousObjects.*off.*safe/);
+  });
 });
