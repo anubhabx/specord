@@ -58,6 +58,11 @@ export type SpecordConfigV1 = {
     globalPrefix?: string;
     versioning?: { strategy: "uri" | "header" | "media-type"; value?: string };
   };
+  inference?: {
+    responses?: {
+      anonymousObjects?: "off" | "safe";
+    };
+  };
   securitySchemes?: Record<string, OpenApiSecuritySchemeObject>;
   operations?: Record<
     string,
@@ -155,6 +160,26 @@ routing: {
 ```
 
 This emits paths under `/v1/...`. Header and media-type versioning currently emit `EXTRACTOR_UNSUPPORTED_VERSIONING` because V1 cannot safely express them as static paths.
+
+## Anonymous Response Inference
+
+Safe anonymous response inference is opt-in and defaults to `"off"`:
+
+```ts
+export default {
+  inference: {
+    responses: {
+      anonymousObjects: "safe",
+    },
+  },
+};
+```
+
+Safe mode is static-only and whole-shape: Specord infers an anonymous response only when the compiler-visible root, route, and every nested branch are closed and reducible. Supported branches include primitives and literals, `Date`, arrays, nested closed objects, valid discovered or generated interface references, and nullable forms.
+
+It does not infer records or index signatures, `any`/`unknown`/`never`, empty or callable shapes, complex unions or conditional types, dangling references, streams, framework response classes, or manual `@Res()` / `@Response()` handling. It also does not model global or runtime serialization, interceptor, filter, or other transform effects; use an operation response override whenever the runtime response differs from the static shape.
+
+Explicit Swagger success responses and `operations.<id>.responses` overrides take precedence. An override marks the affected response as `overridden` and removes only its direct unresolved-response diagnostic.
 
 ## Overrides
 
