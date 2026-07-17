@@ -40,6 +40,10 @@ export interface ResponseExtractionResult {
   schemas: Record<string, SchemaModel>;
 }
 
+export interface ResponseExtractionOptions {
+  inferSafeAnonymousObjects?: boolean;
+}
+
 /**
  * Extract response metadata from a route handler.
  * - Infers status code from method default or @HttpCode()
@@ -51,6 +55,7 @@ export function extractResponse(
   checker: ts.TypeChecker,
   root: string,
   discoveredSchemas: Record<string, SchemaModel>,
+  options: ResponseExtractionOptions = {},
 ): ResponseExtractionResult {
   const diagnostics: Diagnostic[] = [];
   const swaggerResponses = extractSwaggerResponses(route.node, checker);
@@ -72,7 +77,7 @@ export function extractResponse(
   }
 
   // Infer return type
-  const returnType = inferReturnType(route, checker, root, discoveredSchemas);
+  const returnType = inferReturnType(route, checker, root, discoveredSchemas, options);
 
   if (returnType.unresolved) {
     diagnostics.push({
@@ -125,6 +130,7 @@ function inferReturnType(
   checker: ts.TypeChecker,
   root: string,
   discoveredSchemas: Record<string, SchemaModel>,
+  options: ResponseExtractionOptions,
 ): InferredReturnType {
   const resolved = resolveReturnPayloadType(route, checker);
   if (!resolved) {
@@ -145,7 +151,9 @@ function inferReturnType(
     new Set(),
     {
       nameHint: resolved.nameHint,
-      allowAnonymousObject: false,
+      allowAnonymousObject:
+        options.inferSafeAnonymousObjects === true &&
+        isAnonymousObjectType(resolved.type),
     },
   );
   const schemaRef = schema.type;
@@ -186,6 +194,14 @@ function inferReturnType(
   }
 
   return { schema: schemaRef, schemas: generatedSchemas, unresolved: false };
+}
+
+function isAnonymousObjectType(type: ts.Type): boolean {
+  return (
+    !!(type.flags & ts.TypeFlags.Object) &&
+    !!((type as ts.ObjectType).objectFlags & ts.ObjectFlags.Anonymous) &&
+    type.aliasSymbol === undefined
+  );
 }
 
 function defaultStatusCodeForRoute(

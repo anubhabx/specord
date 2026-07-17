@@ -1,0 +1,116 @@
+import fs from "node:fs";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { inspect, resolveConfig } from "../src/index.ts";
+import {
+  cleanupTempProjects,
+  createTempProject,
+} from "./helpers/temp-project.ts";
+
+const tempRoots: string[] = [];
+
+afterEach(() => {
+  cleanupTempProjects(tempRoots);
+});
+
+function inspectAnonymousResponse(
+  anonymousObjects?: "off" | "safe",
+) {
+  const projectRoot = createTempProject(tempRoots, {
+    prefix: "specord-anonymous-response-",
+  });
+  const srcRoot = path.join(projectRoot, "src");
+
+  fs.writeFileSync(
+    path.join(srcRoot, "anonymous.controller.ts"),
+    [
+      "declare function Controller(path?: string): ClassDecorator;",
+      "declare function Get(path?: string): MethodDecorator;",
+      "@Controller('anonymous')",
+      "class AnonymousController {",
+      "  @Get()",
+      "  get(): Promise<{",
+      "    id: string;",
+      "    active: boolean;",
+      "    mode: 'draft' | 'live';",
+      "    updatedAt: Date;",
+      "    tags?: string[];",
+      "    metrics: { count: number | null };",
+      "  }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "}",
+    ].join("\n"),
+  );
+
+  return inspect(
+    resolveConfig(
+      { project: path.join(projectRoot, "tsconfig.json"), root: srcRoot },
+      anonymousObjects
+        ? { inference: { responses: { anonymousObjects } } }
+        : undefined,
+    ),
+  );
+}
+
+describe("anonymous response inference", () => {
+  it("infers a closed anonymous response object in safe mode", () => {
+    const model = inspectAnonymousResponse("safe");
+    const operation = model.operations.find(
+      (item) => item.id === "AnonymousController.get",
+    );
+
+    expect(operation?.responses[0]).toMatchObject({
+      status: 200,
+      inference: { status: "inferred" },
+      schema: {
+        kind: "inline",
+        schema: {
+          type: "object",
+          required: ["id", "active", "mode", "updatedAt", "metrics"],
+          properties: {
+            id: { type: "string" },
+            active: { type: "boolean" },
+            mode: { type: "string", enum: ["draft", "live"] },
+            updatedAt: { type: "string", format: "date-time" },
+            tags: { type: "array", items: { type: "string" } },
+            metrics: {
+              type: "object",
+              required: ["count"],
+              properties: {
+                count: { type: ["number", "null"] },
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps anonymous responses unresolved by default and when explicitly off", () => {
+    const defaultOperation = inspectAnonymousResponse().operations.find(
+      (item) => item.id === "AnonymousController.get",
+    );
+    const explicitlyOffOperation = inspectAnonymousResponse("off").operations.find(
+      (item) => item.id === "AnonymousController.get",
+    );
+
+    expect(defaultOperation?.responses[0]?.inference.status).toBe("unresolved");
+    expect(
+      defaultOperation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
+    expect(explicitlyOffOperation?.responses[0]?.inference.status).toBe("unresolved");
+    expect(
+      explicitlyOffOperation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
+  });
+});
