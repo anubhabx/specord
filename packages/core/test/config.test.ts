@@ -190,4 +190,14 @@ describe("config validation", () => {
       } as any),
     ).toThrow(/inference\.responses\.anonymousObjects.*off.*safe/);
   });
+
+  it("rejects bigint anonymous response inference modes with a config error", () => {
+    expect(() =>
+      validateConfig({
+        inference: {
+          responses: { anonymousObjects: 1n },
+        },
+      } as any),
+    ).toThrow(/inference\.responses\.anonymousObjects.*off.*safe/);
+  });
 });
