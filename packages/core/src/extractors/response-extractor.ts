@@ -84,16 +84,21 @@ function isResolvedDecoratorNamed(
   const target = ts.isCallExpression(decorator.expression)
     ? decorator.expression.expression
     : decorator.expression;
-  const symbolNode = ts.isPropertyAccessExpression(target) ? target.name : target;
-  let symbol = checker.getSymbolAtLocation(symbolNode);
+  if (ts.isPropertyAccessExpression(target)) {
+    return isNamespaceDecoratorReference(target, names, checker);
+  }
+
+  let symbol = checker.getSymbolAtLocation(target);
+  let followedAlias = false;
 
   while (symbol && symbol.flags & ts.SymbolFlags.Alias) {
+    followedAlias = true;
     const aliased = checker.getAliasedSymbol(symbol);
     if (aliased === symbol) break;
     symbol = aliased;
   }
 
-  if (symbol && names.includes(symbol.getName())) return true;
+  if (followedAlias && symbol && names.includes(symbol.getName())) return true;
 
   return (
     ts.isIdentifier(target) &&
@@ -103,6 +108,24 @@ function isResolvedDecoratorNamed(
       (ts.isVariableDeclaration(declaration) && declaration.initializer === undefined),
     ) === true
   );
+}
+
+function isNamespaceDecoratorReference(
+  target: ts.PropertyAccessExpression,
+  names: readonly string[],
+  checker: ts.TypeChecker,
+): boolean {
+  const decoratorSymbol = checker.getSymbolAtLocation(target.name);
+  if (!decoratorSymbol || !names.includes(decoratorSymbol.getName())) return false;
+
+  let qualifier: ts.Expression = target.expression;
+  while (ts.isPropertyAccessExpression(qualifier)) {
+    qualifier = qualifier.expression;
+  }
+  if (!ts.isIdentifier(qualifier)) return false;
+
+  const qualifierSymbol = checker.getSymbolAtLocation(qualifier);
+  return qualifierSymbol?.declarations?.some(ts.isNamespaceImport) === true;
 }
 
 /** Result of response extraction for a single route. */

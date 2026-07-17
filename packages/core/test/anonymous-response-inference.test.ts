@@ -205,6 +205,31 @@ function inspectAnonymousResponse(
     ].join("\n"),
   );
 
+  fs.writeFileSync(
+    path.join(srcRoot, "unrelated-decorator.controller.ts"),
+    [
+      "declare function Controller(path?: string): ClassDecorator;",
+      "declare function Get(path?: string): MethodDecorator;",
+      "const UseFilters = (): MethodDecorator => () => undefined;",
+      "const localDecorators = {",
+      "  UseInterceptors: (): MethodDecorator => () => undefined,",
+      "};",
+      "@Controller('unrelated-decorators')",
+      "class UnrelatedDecoratorController {",
+      "  @Get('variable')",
+      "  @UseFilters()",
+      "  variable(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('property')",
+      "  @localDecorators.UseInterceptors()",
+      "  property(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "}",
+    ].join("\n"),
+  );
+
   return inspect(
     resolveConfig(
       { project: path.join(projectRoot, "tsconfig.json"), root: srcRoot },
@@ -389,6 +414,21 @@ describe("anonymous response inference", () => {
     expect(operation?.responses[0]?.inference.reason).toBe(
       "Anonymous response shape is not closed enough for safe inference",
     );
+  });
+
+  it.each([
+    "UnrelatedDecoratorController.variable",
+    "UnrelatedDecoratorController.property",
+  ])("infers a closed response with unrelated decorator %s", (operationId) => {
+    const model = inspectAnonymousResponse("safe");
+    const operation = model.operations.find((item) => item.id === operationId);
+
+    expect(operation?.responses[0]?.inference.status).toBe("inferred");
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(false);
   });
 
   it("keeps an explicit Swagger success response authoritative in safe mode", () => {
