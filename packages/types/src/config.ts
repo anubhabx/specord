@@ -105,6 +105,12 @@ export type SpecordConfigV1 = {
     };
   };
 
+  inference?: {
+    responses?: {
+      anonymousObjects?: "off" | "safe";
+    };
+  };
+
   securitySchemes?: Record<string, OpenApiSecuritySchemeObject>;
 
   operations?: Record<string, OperationOverrideConfig>;

@@ -88,6 +88,23 @@ export function validateConfig(config: SpecordConfigV1): void {
       );
     }
   }
+
+  const inference = isObject(config.inference) ? config.inference : undefined;
+  const responses = isObject(inference?.responses)
+    ? inference.responses
+    : undefined;
+  const anonymousObjects = responses?.anonymousObjects;
+
+  if (
+    anonymousObjects !== undefined &&
+    anonymousObjects !== "off" &&
+    anonymousObjects !== "safe"
+  ) {
+    throw new Error(
+      `[specord] Config error in inference.responses.anonymousObjects: ` +
+        `expected "off" or "safe", got ${JSON.stringify(anonymousObjects)}`,
+    );
+  }
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
