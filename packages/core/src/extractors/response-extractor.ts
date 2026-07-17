@@ -98,16 +98,7 @@ function isResolvedDecoratorNamed(
     symbol = aliased;
   }
 
-  if (followedAlias && symbol && names.includes(symbol.getName())) return true;
-
-  return (
-    ts.isIdentifier(target) &&
-    names.includes(target.text) &&
-    symbol?.declarations?.some((declaration) =>
-      ts.isFunctionDeclaration(declaration) ||
-      (ts.isVariableDeclaration(declaration) && declaration.initializer === undefined),
-    ) === true
-  );
+  return followedAlias && symbol !== undefined && names.includes(symbol.getName());
 }
 
 function isNamespaceDecoratorReference(

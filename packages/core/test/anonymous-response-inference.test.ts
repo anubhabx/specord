@@ -81,11 +81,6 @@ function inspectAnonymousResponse(
     [
       "declare function Controller(path?: string): ClassDecorator;",
       "declare function Get(path?: string): MethodDecorator;",
-      "declare function Res(): ParameterDecorator;",
-      "declare function Response(): ParameterDecorator;",
-      "declare function UseInterceptors(...interceptors: unknown[]): MethodDecorator & ClassDecorator;",
-      "declare function UseFilters(...filters: unknown[]): MethodDecorator & ClassDecorator;",
-      "declare function SerializeOptions(options: unknown): MethodDecorator & ClassDecorator;",
       "declare function ApiOkResponse(options?: unknown): MethodDecorator;",
       "declare const ResponseInterceptor: unknown;",
       "declare const ResponseFilter: unknown;",
@@ -93,7 +88,7 @@ function inspectAnonymousResponse(
       includeNestedObjectAlias
         ? "import { PayloadDto, type NestedObjectAlias, type OpenPassthrough, type ClosedStrict, type ResponseGeneratedUnsafe } from './payload.dto';"
         : "import { PayloadDto, type OpenPassthrough, type ClosedStrict, type ResponseGeneratedUnsafe } from './payload.dto';",
-      "import { Res as ManualResponse, UseInterceptors as TransformResponse } from './response-decorators';",
+      "import { Res, Response, UseInterceptors, UseFilters, SerializeOptions, Res as ManualResponse, UseInterceptors as TransformResponse } from './response-decorators';",
       "import * as ResponseDecorators from './response-decorators';",
       "import * as DecoratorBarrel from './response-decorator-barrel';",
       "@Controller('anonymous')",
@@ -262,6 +257,8 @@ function inspectAnonymousResponse(
     [
       "declare function Controller(path?: string): ClassDecorator;",
       "declare function Get(path?: string): MethodDecorator;",
+      "declare function UseInterceptors(): MethodDecorator;",
+      "function Response(): ParameterDecorator { return () => undefined; }",
       "const UseFilters = (): MethodDecorator => () => undefined;",
       "const localDecorators = {",
       "  UseInterceptors: (): MethodDecorator => () => undefined,",
@@ -276,6 +273,15 @@ function inspectAnonymousResponse(
       "  @Get('property')",
       "  @localDecorators.UseInterceptors()",
       "  property(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('ambient-transform')",
+      "  @UseInterceptors()",
+      "  ambientTransform(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('local-manual')",
+      "  localManual(@Response() response: unknown): Promise<{ ok: boolean }> {",
       "    throw new Error('not implemented');",
       "  }",
       "}",
@@ -542,6 +548,8 @@ describe("anonymous response inference", () => {
   it.each([
     "UnrelatedDecoratorController.variable",
     "UnrelatedDecoratorController.property",
+    "UnrelatedDecoratorController.ambientTransform",
+    "UnrelatedDecoratorController.localManual",
     "AnonymousController.nestedFilter",
   ])("infers a closed response with unrelated decorator %s", (operationId) => {
     const model = inspectAnonymousResponse("safe");
