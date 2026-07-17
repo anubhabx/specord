@@ -142,6 +142,19 @@ function inferReturnType(
   }
 
   const generatedSchemas: Record<string, SchemaModel> = {};
+  const safeAnonymousCandidate =
+    options.inferSafeAnonymousObjects === true &&
+    isAnonymousObjectType(resolved.type);
+  const safeAnonymousRoot =
+    safeAnonymousCandidate &&
+    isSafeAnonymousRootType(resolved.type, checker) &&
+    isSafeAnonymousTypeBranch(
+      resolved.type,
+      checker,
+      root,
+      discoveredSchemas,
+      new Set(),
+    );
   const schema = schemaFromType(
     resolved.type,
     checker,
@@ -151,9 +164,7 @@ function inferReturnType(
     new Set(),
     {
       nameHint: resolved.nameHint,
-      allowAnonymousObject:
-        options.inferSafeAnonymousObjects === true &&
-        isAnonymousObjectType(resolved.type),
+      allowAnonymousObject: safeAnonymousRoot,
     },
   );
   const schemaRef = schema.type;
@@ -165,7 +176,20 @@ function inferReturnType(
     return {
       schemas: generatedSchemas,
       unresolved: true,
-      reason: `Return type "${typeString}" is not a reducible exported shape`,
+      reason: safeAnonymousCandidate
+        ? "Anonymous response shape is not closed enough for safe inference"
+        : `Return type "${typeString}" is not a reducible exported shape`,
+    };
+  }
+
+  if (
+    safeAnonymousRoot &&
+    !isCompleteResponseSchemaRef(schemaRef, discoveredSchemas, generatedSchemas)
+  ) {
+    return {
+      schemas: {},
+      unresolved: true,
+      reason: "Anonymous response shape is not closed enough for safe inference",
     };
   }
 
@@ -201,6 +225,204 @@ function isAnonymousObjectType(type: ts.Type): boolean {
     !!(type.flags & ts.TypeFlags.Object) &&
     !!((type as ts.ObjectType).objectFlags & ts.ObjectFlags.Anonymous) &&
     type.aliasSymbol === undefined
+  );
+}
+
+function isSafeAnonymousRootType(
+  type: ts.Type,
+  checker: ts.TypeChecker,
+): boolean {
+  if (
+    !(type.flags & ts.TypeFlags.Object) ||
+    !((type as ts.ObjectType).objectFlags & ts.ObjectFlags.Anonymous) ||
+    type.aliasSymbol !== undefined ||
+    type.flags &
+      (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.Never | ts.TypeFlags.Conditional)
+  ) {
+    return false;
+  }
+
+  const properties = checker.getPropertiesOfType(type);
+  return (
+    checker.getIndexInfosOfType(type).length === 0 &&
+    checker.getSignaturesOfType(type, ts.SignatureKind.Call).length === 0 &&
+    checker.getSignaturesOfType(type, ts.SignatureKind.Construct).length === 0 &&
+    properties.length > 0 &&
+    properties.every((symbol) => !isMethodLikeSymbol(symbol))
+  );
+}
+
+function isSafeAnonymousTypeBranch(
+  type: ts.Type,
+  checker: ts.TypeChecker,
+  root: string,
+  discoveredSchemas: Record<string, SchemaModel>,
+  visiting: Set<ts.Type>,
+): boolean {
+  if (
+    type.flags &
+      (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.Never | ts.TypeFlags.Conditional)
+  ) {
+    return false;
+  }
+
+  if (
+    type.flags &
+    (ts.TypeFlags.String | ts.TypeFlags.Number | ts.TypeFlags.Boolean | ts.TypeFlags.Null)
+  ) {
+    return true;
+  }
+
+  if (literalValueFromType(type, checker) !== undefined) return true;
+
+  if (type.isUnion()) {
+    const activeTypes = type.types.filter(
+      (part) =>
+        !(part.flags & ts.TypeFlags.Null) &&
+        !(part.flags & ts.TypeFlags.Undefined),
+    );
+    return (
+      activeTypes.length > 0 &&
+      (literalEnumFromTypes(activeTypes, checker) !== undefined ||
+        (activeTypes.length === 1 &&
+          isSafeAnonymousTypeBranch(
+            activeTypes[0],
+            checker,
+            root,
+            discoveredSchemas,
+            visiting,
+          )))
+    );
+  }
+
+  if (checker.isArrayType(type)) {
+    const [itemType] = getTypeArguments(type, checker);
+    return (
+      itemType !== undefined &&
+      isSafeAnonymousTypeBranch(itemType, checker, root, discoveredSchemas, visiting)
+    );
+  }
+
+  if (schemaNameForType(type) === "Date") return true;
+
+  if (!(type.flags & ts.TypeFlags.Object) || visiting.has(type)) return false;
+
+  const symbol = schemaSymbolForType(type);
+  const schemaName = schemaNameForType(type);
+  if (schemaName && discoveredSchemas[schemaName]) return true;
+  if (
+    symbol?.declarations?.some((declaration) => ts.isClassDeclaration(declaration)) ||
+    checker.getIndexInfosOfType(type).length > 0 ||
+    checker.getSignaturesOfType(type, ts.SignatureKind.Call).length > 0 ||
+    checker.getSignaturesOfType(type, ts.SignatureKind.Construct).length > 0
+  ) {
+    return false;
+  }
+
+  const properties = checker.getPropertiesOfType(type);
+  if (properties.length === 0 || properties.some(isMethodLikeSymbol)) return false;
+
+  visiting.add(type);
+  const complete = properties.every((property) => {
+    const location = firstDeclaration(property) ?? type.symbol?.valueDeclaration;
+    return (
+      location !== undefined &&
+      isSafeAnonymousTypeBranch(
+        checker.getTypeOfSymbolAtLocation(property, location),
+        checker,
+        root,
+        discoveredSchemas,
+        visiting,
+      )
+    );
+  });
+  visiting.delete(type);
+  return complete;
+}
+
+function isCompleteResponseSchemaRef(
+  ref: SchemaRef,
+  discoveredSchemas: Record<string, SchemaModel>,
+  generatedSchemas: Record<string, SchemaModel>,
+): boolean {
+  switch (ref.kind) {
+    case "unknown":
+      return false;
+    case "primitive":
+      return true;
+    case "array":
+      return isCompleteResponseSchemaRef(ref.items, discoveredSchemas, generatedSchemas);
+    case "ref":
+      return Boolean(discoveredSchemas[ref.name] || generatedSchemas[ref.name]);
+    case "inline":
+      return isCompleteOpenApiSchema(ref.schema, discoveredSchemas, generatedSchemas);
+  }
+}
+
+function isCompleteOpenApiSchema(
+  schema: OpenApiSchemaObject,
+  discoveredSchemas: Record<string, SchemaModel>,
+  generatedSchemas: Record<string, SchemaModel>,
+): boolean {
+  const value = schema as Record<string, unknown>;
+  const ref = value.$ref;
+  if (typeof ref === "string") {
+    const name = ref.match(/^#\/components\/schemas\/(.+)$/)?.[1];
+    return name !== undefined && Boolean(discoveredSchemas[name] || generatedSchemas[name]);
+  }
+
+  if (Array.isArray(value.anyOf)) return false;
+  if (Array.isArray(value.oneOf)) {
+    if (value.oneOf.length !== 2) return false;
+    const [first, second] = value.oneOf;
+    const firstIsNull = isNullOpenApiSchema(first);
+    const secondIsNull = isNullOpenApiSchema(second);
+    return (
+      firstIsNull !== secondIsNull &&
+      isCompleteOpenApiSchema(
+        (firstIsNull ? second : first) as OpenApiSchemaObject,
+        discoveredSchemas,
+        generatedSchemas,
+      )
+    );
+  }
+
+  if (value.type === "array") {
+    return (
+      value.items !== undefined &&
+      isCompleteOpenApiSchema(
+        value.items as OpenApiSchemaObject,
+        discoveredSchemas,
+        generatedSchemas,
+      )
+    );
+  }
+
+  if (value.type === "object") {
+    const properties = value.properties;
+    return (
+      properties !== undefined &&
+      Object.keys(properties as Record<string, unknown>).length > 0 &&
+      Object.values(properties as Record<string, OpenApiSchemaObject>).every((property) =>
+        isCompleteOpenApiSchema(property, discoveredSchemas, generatedSchemas),
+      )
+    );
+  }
+
+  if (typeof value.type === "string") return value.type !== "object";
+  if (Array.isArray(value.type)) {
+    const nonNullTypes = value.type.filter((entry) => entry !== "null");
+    return nonNullTypes.length === 1 && value.type.includes("null");
+  }
+
+  return false;
+}
+
+function isNullOpenApiSchema(schema: unknown): boolean {
+  return (
+    typeof schema === "object" &&
+    schema !== null &&
+    (schema as Record<string, unknown>).type === "null"
   );
 }
 

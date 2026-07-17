@@ -26,6 +26,7 @@ function inspectAnonymousResponse(
     [
       "declare function Controller(path?: string): ClassDecorator;",
       "declare function Get(path?: string): MethodDecorator;",
+      "declare class Buffer { readonly length: number; }",
       "@Controller('anonymous')",
       "class AnonymousController {",
       "  @Get()",
@@ -37,6 +38,42 @@ function inspectAnonymousResponse(
       "    tags?: string[];",
       "    metrics: { count: number | null };",
       "  }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('indexed')",
+      "  indexed(): Promise<{ [key: string]: string; known: string }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('callable')",
+      "  callable(): Promise<{ (): string; id: string }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('method')",
+      "  withMethod(): Promise<{ id: string; run(): string }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('record')",
+      "  openRecord(): Promise<Record<string, unknown>> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('nested-record')",
+      "  nestedRecord(): Promise<{ data: Record<string, unknown> }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('nested-unknown')",
+      "  nestedUnknown(): Promise<{ data: unknown }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('nested-empty')",
+      "  nestedEmpty(): Promise<{ data: {} }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('nested-complex-union')",
+      "  nestedComplexUnion(): Promise<{ data: { a: string } | { b: number } }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('nested-library')",
+      "  nestedLibrary(): Promise<{ data: Buffer }> {",
       "    throw new Error('not implemented');",
       "  }",
       "}",
@@ -112,5 +149,42 @@ describe("anonymous response inference", () => {
         (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
       ),
     ).toBe(true);
+  });
+
+  it.each([
+    "AnonymousController.indexed",
+    "AnonymousController.callable",
+    "AnonymousController.withMethod",
+    "AnonymousController.openRecord",
+  ])("keeps unsafe anonymous root %s unresolved in safe mode", (operationId) => {
+    const model = inspectAnonymousResponse("safe");
+    const operation = model.operations.find((item) => item.id === operationId);
+
+    expect(operation?.responses[0]?.inference.status).toBe("unresolved");
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
+    expect(model.schemas).toEqual({});
+  });
+
+  it.each([
+    "AnonymousController.nestedRecord",
+    "AnonymousController.nestedUnknown",
+    "AnonymousController.nestedEmpty",
+    "AnonymousController.nestedComplexUnion",
+    "AnonymousController.nestedLibrary",
+  ])("rejects incomplete nested shape %s without generated schemas", (operationId) => {
+    const model = inspectAnonymousResponse("safe");
+    const operation = model.operations.find((item) => item.id === operationId);
+
+    expect(operation?.responses[0]?.inference.status).toBe("unresolved");
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
+    expect(model.schemas).toEqual({});
   });
 });
