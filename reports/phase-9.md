@@ -2,7 +2,7 @@
 
 **Phase:** 9 - Safe anonymous response inference
 **Date:** 2026-07-18
-**Status:** Healthy for the implemented acceptance scope and final local verification. Default V1 output is unchanged; opt-in safe mode reduced unresolved production API surface responses from 78 to 37 while preserving route parity and valid OpenAPI. Local workspace build, test, and branch-audit gates are complete; push, pull request, and hosted checks remain pending.
+**Status:** Healthy for the implemented acceptance scope and final local verification. Default V1 output is unchanged; opt-in safe mode reduced unresolved production API surface responses from 78 to 37 while preserving route parity and valid OpenAPI. Final safety review fixes cover resolved decorator aliases and recursive discovered/generated component validation. Local workspace build, test, and branch-audit gates are complete; push, pull request, and hosted checks remain pending.
 
 ---
 
@@ -18,7 +18,7 @@ Measured against the production server checkout, safe mode preserved 107 paths a
 | --- | --- |
 | Configuration | Optional `inference.responses.anonymousObjects` policy with runtime validation for `"off"` and `"safe"` |
 | Extraction | Closed anonymous response inference behind the opt-in policy |
-| Safety boundary | Whole-shape rejection for index signatures, call/construct signatures, methods, classes, records, unknown members, complex unions, dangling references, manual responses, and visible response transforms |
+| Safety boundary | Whole-shape rejection for index signatures, call/construct signatures, methods, classes, records, unknown members, complex unions, dangling or incomplete component references, manual responses, and visible response transforms (including aliases, namespace imports, and re-exports) |
 | Precedence | Swagger success responses and operation response overrides remain authoritative |
 | Tests and docs | Focused response/config coverage, cyclic-config and controller-transform hardening, normative contract, and configuration guidance |
 
@@ -27,9 +27,9 @@ Measured against the production server checkout, safe mode preserved 107 paths a
 | Criterion | Status | Evidence |
 | --- | --- | --- |
 | Package builds | Pass | `@specord/types`, `@specord/core`, `@specord/openapi`, and `@specord/cli` builds passed with pnpm 10.33.4 |
-| Core regression suite | Pass | 15 files, 98 tests passed after cyclic-config and controller-transform hardening |
-| Fresh uncached workspace build | Pass | `pnpm.cmd exec turbo run build --force`: 6/6 tasks, 0 cached, six packages, 4.983s |
-| Fresh uncached workspace test | Pass | `pnpm.cmd exec turbo run test --force`: 12/12 tasks, 0 cached, 22 files and 126 tests across six packages, 25.144s |
+| Core regression suite | Pass | 15 files, 108 tests passed after config, transform-boundary, decorator-resolution, and component-completeness hardening |
+| Fresh uncached workspace build | Pass | `pnpm.cmd exec turbo run build --force`: 6/6 tasks, 0 cached, six packages, 5.291s |
+| Fresh uncached workspace test | Pass | `pnpm.cmd exec turbo run test --force`: 12/12 tasks, 0 cached, 22 files and 136 tests across six packages, 32.192s |
 | Workspace lint coverage | Not configured | `pnpm.cmd lint` exited 0, but Turbo executed 0 tasks and warned `No tasks were executed`; this is not lint coverage |
 | Canonical snapshot and acceptance tests | Pass | 2 files, 16 tests passed |
 | Canonical inspect/generate | Pass | Both commands exited 0; canonical model remains 7 controllers, 22 paths, 27 operations, and 42 schemas |
@@ -66,7 +66,7 @@ The 37 safe-mode residual responses are intentional: 23 are anonymous shapes rej
 
 ## Architecture Capabilities
 
-The system can infer a complete anonymous structural response only after TypeScript exposes a closed object shape and every nested member is representable without a partial or dangling schema. Nested supported primitives, literals, nullable values, arrays, dates, anonymous objects, and valid discovered or response-generated references are supported.
+The system can infer a complete anonymous structural response only after TypeScript exposes a closed object shape and every nested member is representable without a partial, open, cyclic, or dangling schema. Nested supported primitives, literals, nullable values, arrays, dates, anonymous objects, and recursively complete discovered or response-generated references are supported.
 
 The system cannot infer runtime serialization/interceptor/filter effects, manually written responses, open records/index signatures, unknown or `any` members, callable/constructable objects, classes/framework wrappers, complex unions, or incomplete nested shapes. Those cases deliberately remain unresolved and retain their override path.
 
@@ -74,12 +74,12 @@ The system cannot infer runtime serialization/interceptor/filter effects, manual
 
 | Metric | Value |
 | --- | ---: |
-| Pre-final-report commits (`fe1a20e..391878a`) | 12 |
-| Pre-final-report tracked files changed | 11 |
-| Pre-final-report insertions | 1,759 |
-| Pre-final-report deletions | 5 |
-| Current core suite | 15 files, 98 tests |
-| Fresh workspace suite | 22 files, 126 tests across six packages |
+| Final branch commits (including report sync) | 18 |
+| Final tracked files changed | 11 |
+| Final insertions | 2,116 |
+| Final deletions | 5 |
+| Current core suite | 15 files, 108 tests |
+| Fresh workspace suite | 22 files, 136 tests across six packages |
 | New runtime dependencies | 0 |
 | Package-manifest/lockfile dependency delta | 0 |
 
@@ -91,6 +91,8 @@ The system cannot infer runtime serialization/interceptor/filter effects, manual
 | Require complete whole shapes | Documentation must not imply certainty when any nested member is unsupported |
 | Preserve Swagger and config precedence | Explicit API documentation remains more authoritative than structural inference |
 | Reject visible response-transform boundaries | Static return types cannot prove runtime serialization output |
+| Resolve only canonical response-boundary decorators | Aliases, namespace imports, and re-exports are blocked without treating unrelated same-named decorators as transforms |
+| Validate referenced component contents recursively | A discovered or earlier-generated name is not proof that its schema is closed and complete |
 | Keep open records unresolved | Arbitrary keys and unknown values cannot be safely modeled as a closed object |
 | Retain route-parity gate separately | Response-fidelity gains must not obscure routing regressions |
 

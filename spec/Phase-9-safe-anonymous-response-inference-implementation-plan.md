@@ -482,11 +482,8 @@ pnpm --filter @specord/cli build
 
 - [ ] **Step 2: Capture default benchmark parity**
 
-```powershell
-$env:SEMBLIA_API_ROOT = "C:\workspace\specord\testing\semblia-api\apps\api_v2"
-pnpm benchmark:semblia
-Remove-Item Env:SEMBLIA_API_ROOT
-```
+Run the existing repository-local private benchmark with its target root set to
+the private production-server checkout.
 
 Expected: 107 paths, 136 operations, and route parity PASS.
 
@@ -502,9 +499,8 @@ loads the target config, merges
 - unresolved response counts grouped by reason and controller; and
 - unmatched path-parameter diagnostics.
 
-The target is
-`C:\workspace\specord\testing\semblia-api\apps\api_v2`. Do not edit its
-untracked `specord.config.ts`.
+The target is a private production-server checkout outside this worktree. Do
+not edit its untracked `specord.config.ts`.
 
 - [ ] **Step 4: Validate safe-mode OpenAPI**
 
