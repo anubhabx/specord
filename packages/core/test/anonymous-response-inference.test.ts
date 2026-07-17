@@ -22,11 +22,21 @@ function inspectAnonymousResponse(
   const srcRoot = path.join(projectRoot, "src");
 
   fs.writeFileSync(
+    path.join(srcRoot, "payload.dto.ts"),
+    [
+      "export class PayloadDto {",
+      "  id!: string;",
+      "}",
+    ].join("\n"),
+  );
+
+  fs.writeFileSync(
     path.join(srcRoot, "anonymous.controller.ts"),
     [
       "declare function Controller(path?: string): ClassDecorator;",
       "declare function Get(path?: string): MethodDecorator;",
       "declare class Buffer { readonly length: number; }",
+      "import { PayloadDto } from './payload.dto';",
       "@Controller('anonymous')",
       "class AnonymousController {",
       "  @Get()",
@@ -74,6 +84,10 @@ function inspectAnonymousResponse(
       "  }",
       "  @Get('nested-library')",
       "  nestedLibrary(): Promise<{ data: Buffer }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('nested-discovered-class')",
+      "  nestedDiscoveredClass(): Promise<{ data: PayloadDto }> {",
       "    throw new Error('not implemented');",
       "  }",
       "}",
@@ -166,7 +180,7 @@ describe("anonymous response inference", () => {
         (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
       ),
     ).toBe(true);
-    expect(model.schemas).toEqual({});
+    expect(Object.keys(model.schemas)).toEqual(["PayloadDto"]);
   });
 
   it.each([
@@ -185,6 +199,20 @@ describe("anonymous response inference", () => {
         (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
       ),
     ).toBe(true);
-    expect(model.schemas).toEqual({});
+    expect(Object.keys(model.schemas)).toEqual(["PayloadDto"]);
+  });
+
+  it("rejects a discovered DTO class nested in a safe anonymous response", () => {
+    const model = inspectAnonymousResponse("safe");
+    const operation = model.operations.find(
+      (item) => item.id === "AnonymousController.nestedDiscoveredClass",
+    );
+
+    expect(operation?.responses[0]?.inference.status).toBe("unresolved");
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
   });
 });

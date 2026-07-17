@@ -309,7 +309,6 @@ function isSafeAnonymousTypeBranch(
 
   const symbol = schemaSymbolForType(type);
   const schemaName = schemaNameForType(type);
-  if (schemaName && discoveredSchemas[schemaName]) return true;
   if (
     symbol?.declarations?.some((declaration) => ts.isClassDeclaration(declaration)) ||
     checker.getIndexInfosOfType(type).length > 0 ||
@@ -318,6 +317,7 @@ function isSafeAnonymousTypeBranch(
   ) {
     return false;
   }
+  if (schemaName && discoveredSchemas[schemaName]) return true;
 
   const properties = checker.getPropertiesOfType(type);
   if (properties.length === 0 || properties.some(isMethodLikeSymbol)) return false;
