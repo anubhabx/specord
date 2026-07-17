@@ -41,6 +41,17 @@ function inspectAnonymousResponse(
   );
 
   fs.writeFileSync(
+    path.join(srcRoot, "response-decorators.ts"),
+    [
+      "export declare function Res(): ParameterDecorator;",
+      "export declare function Response(): ParameterDecorator;",
+      "export declare function UseInterceptors(...interceptors: unknown[]): MethodDecorator & ClassDecorator;",
+      "export declare function UseFilters(...filters: unknown[]): MethodDecorator & ClassDecorator;",
+      "export declare function SerializeOptions(options: unknown): MethodDecorator & ClassDecorator;",
+    ].join("\n"),
+  );
+
+  fs.writeFileSync(
     path.join(srcRoot, "anonymous.controller.ts"),
     [
       "declare function Controller(path?: string): ClassDecorator;",
@@ -57,6 +68,8 @@ function inspectAnonymousResponse(
       includeNestedObjectAlias
         ? "import { PayloadDto, type NestedObjectAlias } from './payload.dto';"
         : "import { PayloadDto } from './payload.dto';",
+      "import { Res as ManualResponse, UseInterceptors as TransformResponse } from './response-decorators';",
+      "import * as ResponseDecorators from './response-decorators';",
       "@Controller('anonymous')",
       "class AnonymousController {",
       "  @Get()",
@@ -139,6 +152,24 @@ function inspectAnonymousResponse(
       "  @Get('serialized')",
       "  @SerializeOptions({})",
       "  serialized(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('aliased-transform')",
+      "  @TransformResponse(ResponseInterceptor)",
+      "  aliasedTransform(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('namespace-filter')",
+      "  @ResponseDecorators.UseFilters(ResponseFilter)",
+      "  namespaceFilter(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('aliased-manual')",
+      "  aliasedManual(@ManualResponse() response: unknown): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('namespace-manual')",
+      "  namespaceManual(@ResponseDecorators.Response() response: unknown): Promise<{ ok: boolean }> {",
       "    throw new Error('not implemented');",
       "  }",
       "  @Get('swagger')",
@@ -338,6 +369,10 @@ describe("anonymous response inference", () => {
     "AnonymousController.transformed",
     "AnonymousController.filtered",
     "AnonymousController.serialized",
+    "AnonymousController.aliasedTransform",
+    "AnonymousController.namespaceFilter",
+    "AnonymousController.aliasedManual",
+    "AnonymousController.namespaceManual",
     "InterceptedController.get",
     "FilteredController.get",
     "SerializedController.get",
@@ -351,6 +386,9 @@ describe("anonymous response inference", () => {
         (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
       ),
     ).toBe(true);
+    expect(operation?.responses[0]?.inference.reason).toBe(
+      "Anonymous response shape is not closed enough for safe inference",
+    );
   });
 
   it("keeps an explicit Swagger success response authoritative in safe mode", () => {

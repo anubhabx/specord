@@ -17,7 +17,6 @@ import { cloneOpenApiSchema } from "../internal/clone.js";
 import {
   extractDecoratorStringArg,
   findDecorator,
-  hasAnyDecorator,
 } from "./controller-discovery.js";
 import type { DiscoveredRoute } from "./route-extractor.js";
 import {
@@ -43,23 +42,66 @@ const RESPONSE_TRANSFORM_DECORATORS = [
   "UseFilters",
 ] as const;
 
-export function routeAllowsSafeAnonymousInference(route: DiscoveredRoute): boolean {
+export function routeAllowsSafeAnonymousInference(
+  route: DiscoveredRoute,
+  checker: ts.TypeChecker,
+): boolean {
   if (
     route.node.parameters.some((parameter) =>
-      hasAnyDecorator(parameter, ["Res", "Response"]),
+      hasAnyResolvedDecorator(parameter, ["Res", "Response"], checker),
     )
   ) {
     return false;
   }
 
-  if (hasAnyDecorator(route.node, RESPONSE_TRANSFORM_DECORATORS)) {
+  if (hasAnyResolvedDecorator(route.node, RESPONSE_TRANSFORM_DECORATORS, checker)) {
     return false;
   }
 
   const controller = route.node.parent;
   return !(
     ts.isClassDeclaration(controller) &&
-    hasAnyDecorator(controller, RESPONSE_TRANSFORM_DECORATORS)
+    hasAnyResolvedDecorator(controller, RESPONSE_TRANSFORM_DECORATORS, checker)
+  );
+}
+
+function hasAnyResolvedDecorator(
+  node: ts.HasDecorators,
+  names: readonly string[],
+  checker: ts.TypeChecker,
+): boolean {
+  const decorators = ts.canHaveDecorators(node) ? ts.getDecorators(node) : undefined;
+  return decorators?.some((decorator) =>
+    isResolvedDecoratorNamed(decorator, names, checker),
+  ) ?? false;
+}
+
+function isResolvedDecoratorNamed(
+  decorator: ts.Decorator,
+  names: readonly string[],
+  checker: ts.TypeChecker,
+): boolean {
+  const target = ts.isCallExpression(decorator.expression)
+    ? decorator.expression.expression
+    : decorator.expression;
+  const symbolNode = ts.isPropertyAccessExpression(target) ? target.name : target;
+  let symbol = checker.getSymbolAtLocation(symbolNode);
+
+  while (symbol && symbol.flags & ts.SymbolFlags.Alias) {
+    const aliased = checker.getAliasedSymbol(symbol);
+    if (aliased === symbol) break;
+    symbol = aliased;
+  }
+
+  if (symbol && names.includes(symbol.getName())) return true;
+
+  return (
+    ts.isIdentifier(target) &&
+    names.includes(target.text) &&
+    symbol?.declarations?.some((declaration) =>
+      ts.isFunctionDeclaration(declaration) ||
+      (ts.isVariableDeclaration(declaration) && declaration.initializer === undefined),
+    ) === true
   );
 }
 
@@ -174,10 +216,10 @@ function inferReturnType(
   const generatedSchemas: Record<string, SchemaModel> = {};
   const safeAnonymousCandidate =
     options.inferSafeAnonymousObjects === true &&
-    routeAllowsSafeAnonymousInference(route) &&
     isAnonymousObjectType(resolved.type);
   const safeAnonymousRoot =
     safeAnonymousCandidate &&
+    routeAllowsSafeAnonymousInference(route, checker) &&
     isSafeAnonymousRootType(resolved.type, checker) &&
     isSafeAnonymousTypeBranch(
       resolved.type,
