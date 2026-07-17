@@ -17,6 +17,7 @@ afterEach(() => {
 function inspectAnonymousResponse(
   anonymousObjects?: "off" | "safe",
   overrides?: Pick<SpecordConfigV1, "operations">,
+  includeNestedObjectAlias = false,
 ) {
   const projectRoot = createTempProject(tempRoots, {
     prefix: "specord-anonymous-response-",
@@ -29,6 +30,13 @@ function inspectAnonymousResponse(
       "export class PayloadDto {",
       "  id!: string;",
       "}",
+      ...(includeNestedObjectAlias
+        ? [
+            "export type NestedObjectAlias = {",
+            "  code: string;",
+            "};",
+          ]
+        : []),
     ].join("\n"),
   );
 
@@ -46,7 +54,9 @@ function inspectAnonymousResponse(
       "declare const ResponseInterceptor: unknown;",
       "declare const ResponseFilter: unknown;",
       "declare class Buffer { readonly length: number; }",
-      "import { PayloadDto } from './payload.dto';",
+      includeNestedObjectAlias
+        ? "import { PayloadDto, type NestedObjectAlias } from './payload.dto';"
+        : "import { PayloadDto } from './payload.dto';",
       "@Controller('anonymous')",
       "class AnonymousController {",
       "  @Get()",
@@ -100,6 +110,14 @@ function inspectAnonymousResponse(
       "  nestedDiscoveredClass(): Promise<{ data: PayloadDto }> {",
       "    throw new Error('not implemented');",
       "  }",
+      ...(includeNestedObjectAlias
+        ? [
+            "  @Get('nested-object-alias')",
+            "  nestedObjectAlias(): Promise<{ data: NestedObjectAlias }> {",
+            "    throw new Error('not implemented');",
+            "  }",
+          ]
+        : []),
       "  @Get('manual')",
       "  manual(@Res() response: unknown): Promise<{ ok: boolean }> {",
       "    throw new Error('not implemented');",
@@ -265,6 +283,37 @@ describe("anonymous response inference", () => {
         (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
       ),
     ).toBe(true);
+  });
+
+  it("infers a nested named object type alias in a safe anonymous response", () => {
+    const model = inspectAnonymousResponse("safe", undefined, true);
+    const operation = model.operations.find(
+      (item) => item.id === "AnonymousController.nestedObjectAlias",
+    );
+
+    expect(operation?.responses[0]).toMatchObject({
+      status: 200,
+      inference: { status: "inferred" },
+      schema: {
+        kind: "inline",
+        schema: {
+          type: "object",
+          properties: {
+            data: { $ref: "#/components/schemas/NestedObjectAlias" },
+          },
+        },
+      },
+    });
+    expect(model.schemas.NestedObjectAlias).toMatchObject({
+      properties: {
+        code: { type: { kind: "primitive", type: "string" } },
+      },
+    });
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(false);
   });
 
   it.each([
