@@ -48,7 +48,15 @@ function inspectAnonymousResponse(
       "export declare function UseInterceptors(...interceptors: unknown[]): MethodDecorator & ClassDecorator;",
       "export declare function UseFilters(...filters: unknown[]): MethodDecorator & ClassDecorator;",
       "export declare function SerializeOptions(options: unknown): MethodDecorator & ClassDecorator;",
+      "export declare const nested: {",
+      "  UseFilters(...filters: unknown[]): MethodDecorator & ClassDecorator;",
+      "};",
     ].join("\n"),
+  );
+
+  fs.writeFileSync(
+    path.join(srcRoot, "response-decorator-barrel.ts"),
+    ["export { UseInterceptors as Alias } from './response-decorators';"].join("\n"),
   );
 
   fs.writeFileSync(
@@ -70,6 +78,7 @@ function inspectAnonymousResponse(
         : "import { PayloadDto } from './payload.dto';",
       "import { Res as ManualResponse, UseInterceptors as TransformResponse } from './response-decorators';",
       "import * as ResponseDecorators from './response-decorators';",
+      "import * as DecoratorBarrel from './response-decorator-barrel';",
       "@Controller('anonymous')",
       "class AnonymousController {",
       "  @Get()",
@@ -170,6 +179,16 @@ function inspectAnonymousResponse(
       "  }",
       "  @Get('namespace-manual')",
       "  namespaceManual(@ResponseDecorators.Response() response: unknown): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('barrel-transform')",
+      "  @DecoratorBarrel.Alias(ResponseInterceptor)",
+      "  barrelTransform(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('nested-filter')",
+      "  @ResponseDecorators.nested.UseFilters(ResponseFilter)",
+      "  nestedFilter(): Promise<{ ok: boolean }> {",
       "    throw new Error('not implemented');",
       "  }",
       "  @Get('swagger')",
@@ -398,6 +417,7 @@ describe("anonymous response inference", () => {
     "AnonymousController.namespaceFilter",
     "AnonymousController.aliasedManual",
     "AnonymousController.namespaceManual",
+    "AnonymousController.barrelTransform",
     "InterceptedController.get",
     "FilteredController.get",
     "SerializedController.get",
@@ -419,6 +439,7 @@ describe("anonymous response inference", () => {
   it.each([
     "UnrelatedDecoratorController.variable",
     "UnrelatedDecoratorController.property",
+    "AnonymousController.nestedFilter",
   ])("infers a closed response with unrelated decorator %s", (operationId) => {
     const model = inspectAnonymousResponse("safe");
     const operation = model.operations.find((item) => item.id === operationId);

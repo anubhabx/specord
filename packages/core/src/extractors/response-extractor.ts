@@ -115,17 +115,34 @@ function isNamespaceDecoratorReference(
   names: readonly string[],
   checker: ts.TypeChecker,
 ): boolean {
-  const decoratorSymbol = checker.getSymbolAtLocation(target.name);
-  if (!decoratorSymbol || !names.includes(decoratorSymbol.getName())) return false;
+  if (!ts.isIdentifier(target.expression)) return false;
 
-  let qualifier: ts.Expression = target.expression;
-  while (ts.isPropertyAccessExpression(qualifier)) {
-    qualifier = qualifier.expression;
+  const qualifierSymbol = checker.getSymbolAtLocation(target.expression);
+  if (qualifierSymbol?.declarations?.some(ts.isNamespaceImport) !== true) {
+    return false;
   }
-  if (!ts.isIdentifier(qualifier)) return false;
 
-  const qualifierSymbol = checker.getSymbolAtLocation(qualifier);
-  return qualifierSymbol?.declarations?.some(ts.isNamespaceImport) === true;
+  const decoratorSymbol = resolveTerminalSymbol(
+    checker.getSymbolAtLocation(target.name),
+    checker,
+  );
+  return decoratorSymbol !== undefined && names.includes(decoratorSymbol.getName());
+}
+
+function resolveTerminalSymbol(
+  symbol: ts.Symbol | undefined,
+  checker: ts.TypeChecker,
+): ts.Symbol | undefined {
+  const seen = new Set<ts.Symbol>();
+  let current = symbol;
+
+  while (current && current.flags & ts.SymbolFlags.Alias) {
+    if (seen.has(current)) return undefined;
+    seen.add(current);
+    current = checker.getAliasedSymbol(current);
+  }
+
+  return current;
 }
 
 /** Result of response extraction for a single route. */
