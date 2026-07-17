@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { SpecordConfigV1 } from "@specord/types";
 import { inspect, resolveConfig } from "../src/index.ts";
 import {
   cleanupTempProjects,
@@ -15,6 +16,7 @@ afterEach(() => {
 
 function inspectAnonymousResponse(
   anonymousObjects?: "off" | "safe",
+  overrides?: Pick<SpecordConfigV1, "operations">,
 ) {
   const projectRoot = createTempProject(tempRoots, {
     prefix: "specord-anonymous-response-",
@@ -35,6 +37,14 @@ function inspectAnonymousResponse(
     [
       "declare function Controller(path?: string): ClassDecorator;",
       "declare function Get(path?: string): MethodDecorator;",
+      "declare function Res(): ParameterDecorator;",
+      "declare function Response(): ParameterDecorator;",
+      "declare function UseInterceptors(...interceptors: unknown[]): MethodDecorator;",
+      "declare function UseFilters(...filters: unknown[]): MethodDecorator;",
+      "declare function SerializeOptions(options: unknown): MethodDecorator & ClassDecorator;",
+      "declare function ApiOkResponse(options?: unknown): MethodDecorator;",
+      "declare const ResponseInterceptor: unknown;",
+      "declare const ResponseFilter: unknown;",
       "declare class Buffer { readonly length: number; }",
       "import { PayloadDto } from './payload.dto';",
       "@Controller('anonymous')",
@@ -90,6 +100,42 @@ function inspectAnonymousResponse(
       "  nestedDiscoveredClass(): Promise<{ data: PayloadDto }> {",
       "    throw new Error('not implemented');",
       "  }",
+      "  @Get('manual')",
+      "  manual(@Res() response: unknown): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('manual-alias')",
+      "  manualAlias(@Response() response: unknown): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('transformed')",
+      "  @UseInterceptors(ResponseInterceptor)",
+      "  transformed(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('filtered')",
+      "  @UseFilters(ResponseFilter)",
+      "  filtered(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('serialized')",
+      "  @SerializeOptions({})",
+      "  serialized(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('swagger')",
+      "  @ApiOkResponse({ schema: { type: 'string' } })",
+      "  swagger(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "}",
+      "@Controller('serialized-controller')",
+      "@SerializeOptions({})",
+      "class SerializedController {",
+      "  @Get()",
+      "  get(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
       "}",
     ].join("\n"),
   );
@@ -97,8 +143,13 @@ function inspectAnonymousResponse(
   return inspect(
     resolveConfig(
       { project: path.join(projectRoot, "tsconfig.json"), root: srcRoot },
-      anonymousObjects
-        ? { inference: { responses: { anonymousObjects } } }
+      anonymousObjects || overrides
+        ? {
+            ...(anonymousObjects
+              ? { inference: { responses: { anonymousObjects } } }
+              : {}),
+            ...overrides,
+          }
         : undefined,
     ),
   );
@@ -214,5 +265,78 @@ describe("anonymous response inference", () => {
         (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
       ),
     ).toBe(true);
+  });
+
+  it.each([
+    "AnonymousController.manual",
+    "AnonymousController.manualAlias",
+    "AnonymousController.transformed",
+    "AnonymousController.filtered",
+    "AnonymousController.serialized",
+    "SerializedController.get",
+  ])("keeps response boundary %s unresolved in safe mode", (operationId) => {
+    const model = inspectAnonymousResponse("safe");
+    const operation = model.operations.find((item) => item.id === operationId);
+
+    expect(operation?.responses[0]?.inference.status).toBe("unresolved");
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps an explicit Swagger success response authoritative in safe mode", () => {
+    const model = inspectAnonymousResponse("safe");
+    const operation = model.operations.find(
+      (item) => item.id === "AnonymousController.swagger",
+    );
+
+    expect(operation?.responses).toEqual([
+      expect.objectContaining({
+        status: 200,
+        schema: { kind: "inline", schema: { type: "string" } },
+        inference: { status: "overridden" },
+      }),
+    ]);
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps a config response override authoritative in safe mode", () => {
+    const model = inspectAnonymousResponse("safe", {
+      operations: {
+        "AnonymousController.manual": {
+          responses: {
+            "200": {
+              description: "Configured response.",
+              content: {
+                "application/json": { schema: { type: "boolean" } },
+              },
+            },
+          },
+        },
+      },
+    });
+    const operation = model.operations.find(
+      (item) => item.id === "AnonymousController.manual",
+    );
+
+    expect(operation?.responses).toEqual([
+      expect.objectContaining({
+        status: 200,
+        description: "Configured response.",
+        inference: { status: "overridden" },
+        openapi: expect.objectContaining({ description: "Configured response." }),
+      }),
+    ]);
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(false);
   });
 });

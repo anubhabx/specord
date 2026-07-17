@@ -14,7 +14,11 @@ import type {
   SourceLocation,
 } from "@specord/types";
 import { cloneOpenApiSchema } from "../internal/clone.js";
-import { findDecorator, extractDecoratorStringArg } from "./controller-discovery.js";
+import {
+  extractDecoratorStringArg,
+  findDecorator,
+  hasAnyDecorator,
+} from "./controller-discovery.js";
 import type { DiscoveredRoute } from "./route-extractor.js";
 import {
   extractSwaggerResponses,
@@ -32,6 +36,32 @@ const DEFAULT_STATUS: Record<string, number> = {
   options: 200,
   head: 200,
 };
+
+const RESPONSE_TRANSFORM_DECORATORS = [
+  "UseInterceptors",
+  "SerializeOptions",
+  "UseFilters",
+] as const;
+
+export function routeAllowsSafeAnonymousInference(route: DiscoveredRoute): boolean {
+  if (
+    route.node.parameters.some((parameter) =>
+      hasAnyDecorator(parameter, ["Res", "Response"]),
+    )
+  ) {
+    return false;
+  }
+
+  if (hasAnyDecorator(route.node, RESPONSE_TRANSFORM_DECORATORS)) {
+    return false;
+  }
+
+  const controller = route.node.parent;
+  return !(
+    ts.isClassDeclaration(controller) &&
+    hasAnyDecorator(controller, RESPONSE_TRANSFORM_DECORATORS)
+  );
+}
 
 /** Result of response extraction for a single route. */
 export interface ResponseExtractionResult {
@@ -144,6 +174,7 @@ function inferReturnType(
   const generatedSchemas: Record<string, SchemaModel> = {};
   const safeAnonymousCandidate =
     options.inferSafeAnonymousObjects === true &&
+    routeAllowsSafeAnonymousInference(route) &&
     isAnonymousObjectType(resolved.type);
   const safeAnonymousRoot =
     safeAnonymousCandidate &&
