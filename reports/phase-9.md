@@ -1,8 +1,8 @@
 # Phase 9 Session Report - Safe Anonymous Response Inference
 
 **Phase:** 9 - Safe anonymous response inference
-**Date:** 2026-07-17
-**Status:** Healthy for the implemented acceptance scope. Default V1 output is unchanged; opt-in safe mode reduced unresolved production API surface responses from 78 to 37 while preserving route parity and valid OpenAPI.
+**Date:** 2026-07-18
+**Status:** Healthy for the implemented acceptance scope and final local verification. Default V1 output is unchanged; opt-in safe mode reduced unresolved production API surface responses from 78 to 37 while preserving route parity and valid OpenAPI. Local workspace build, test, and branch-audit gates are complete; push, pull request, and hosted checks remain pending.
 
 ---
 
@@ -20,14 +20,17 @@ Measured against the production server checkout, safe mode preserved 107 paths a
 | Extraction | Closed anonymous response inference behind the opt-in policy |
 | Safety boundary | Whole-shape rejection for index signatures, call/construct signatures, methods, classes, records, unknown members, complex unions, dangling references, manual responses, and visible response transforms |
 | Precedence | Swagger success responses and operation response overrides remain authoritative |
-| Tests and docs | Focused response/config coverage, normative contract, and configuration guidance |
+| Tests and docs | Focused response/config coverage, cyclic-config and controller-transform hardening, normative contract, and configuration guidance |
 
 ## Acceptance Matrix
 
 | Criterion | Status | Evidence |
 | --- | --- | --- |
 | Package builds | Pass | `@specord/types`, `@specord/core`, `@specord/openapi`, and `@specord/cli` builds passed with pnpm 10.33.4 |
-| Core regression suite | Pass | 15 files, 95 tests passed |
+| Core regression suite | Pass | 15 files, 98 tests passed after cyclic-config and controller-transform hardening |
+| Fresh uncached workspace build | Pass | `pnpm.cmd exec turbo run build --force`: 6/6 tasks, 0 cached, six packages, 4.983s |
+| Fresh uncached workspace test | Pass | `pnpm.cmd exec turbo run test --force`: 12/12 tasks, 0 cached, 22 files and 126 tests across six packages, 25.144s |
+| Workspace lint coverage | Not configured | `pnpm.cmd lint` exited 0, but Turbo executed 0 tasks and warned `No tasks were executed`; this is not lint coverage |
 | Canonical snapshot and acceptance tests | Pass | 2 files, 16 tests passed |
 | Canonical inspect/generate | Pass | Both commands exited 0; canonical model remains 7 controllers, 22 paths, 27 operations, and 42 schemas |
 | Canonical snapshot artifacts | Pass | Registry, changelog, and log have no diff; snapshot content hash equals `HEAD` |
@@ -36,6 +39,7 @@ Measured against the production server checkout, safe mode preserved 107 paths a
 | Safe-mode material improvement | Pass | Unresolved responses: 78 to 37; inferred responses: 58 to 99 |
 | Safe-mode OpenAPI | Pass | Validation returned `valid: true`; no errors or dangling-reference failure |
 | Target checkout preservation | Pass | Status before and after was only the pre-existing untracked config file; no transient compiled module remained |
+| Local branch audit | Pass | Worktree clean; branch diff check and public private-name scan passed |
 
 ## Extraction Output Summary
 
@@ -70,11 +74,12 @@ The system cannot infer runtime serialization/interceptor/filter effects, manual
 
 | Metric | Value |
 | --- | ---: |
-| Pre-report commits (`fe1a20e..055e89c`) | 10 |
-| Pre-report tracked files changed | 10 |
-| Pre-report insertions | 1,617 |
-| Pre-report deletions | 5 |
-| Current core suite | 15 files, 95 tests |
+| Pre-final-report commits (`fe1a20e..391878a`) | 12 |
+| Pre-final-report tracked files changed | 11 |
+| Pre-final-report insertions | 1,759 |
+| Pre-final-report deletions | 5 |
+| Current core suite | 15 files, 98 tests |
+| Fresh workspace suite | 22 files, 126 tests across six packages |
 | New runtime dependencies | 0 |
 | Package-manifest/lockfile dependency delta | 0 |
 
@@ -98,7 +103,7 @@ The work follows the design/RFC boundary in [RFC issue #3](https://github.com/an
 | Residual response analysis | Cluster the 23 rejected anonymous shapes by specific incomplete member pattern |
 | Named response families | Add only source-justified support for repeated named shapes that remain unreducible |
 | Path parameters | Investigate the 16 unchanged unmatched path tokens independently |
-| Verification and delivery | Task 7: full workspace verification, review, and pull-request checks |
+| Delivery | Push the verified branch, create the pull request, and audit hosted checks/review state; these steps are pending and have not been claimed locally |
 
 ## Risk Assessment
 
