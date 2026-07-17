@@ -30,6 +30,23 @@ function inspectAnonymousResponse(
       "export class PayloadDto {",
       "  id!: string;",
       "}",
+      "declare namespace z {",
+      "  interface ZodType<T> {}",
+      "  interface ZodObject<T> extends ZodType<T> {",
+      "    passthrough(): ZodObject<T>;",
+      "    strict(): ZodObject<T>;",
+      "  }",
+      "  function string(): ZodType<string>;",
+      "  function object(shape: { id: ZodType<string> }): ZodObject<{ id: string }> ;",
+      "}",
+      "export const OpenPassthroughSchema = z.object({ id: z.string() }).passthrough();",
+      "export type OpenPassthrough = { id: string };",
+      "export const ClosedStrictSchema = z.object({ id: z.string() }).strict();",
+      "export type ClosedStrict = { id: string };",
+      "export interface ResponseGeneratedUnsafe {",
+      "  id: string;",
+      "  extra: unknown;",
+      "}",
       ...(includeNestedObjectAlias
         ? [
             "export type NestedObjectAlias = {",
@@ -74,8 +91,8 @@ function inspectAnonymousResponse(
       "declare const ResponseFilter: unknown;",
       "declare class Buffer { readonly length: number; }",
       includeNestedObjectAlias
-        ? "import { PayloadDto, type NestedObjectAlias } from './payload.dto';"
-        : "import { PayloadDto } from './payload.dto';",
+        ? "import { PayloadDto, type NestedObjectAlias, type OpenPassthrough, type ClosedStrict, type ResponseGeneratedUnsafe } from './payload.dto';"
+        : "import { PayloadDto, type OpenPassthrough, type ClosedStrict, type ResponseGeneratedUnsafe } from './payload.dto';",
       "import { Res as ManualResponse, UseInterceptors as TransformResponse } from './response-decorators';",
       "import * as ResponseDecorators from './response-decorators';",
       "import * as DecoratorBarrel from './response-decorator-barrel';",
@@ -130,6 +147,22 @@ function inspectAnonymousResponse(
       "  }",
       "  @Get('nested-discovered-class')",
       "  nestedDiscoveredClass(): Promise<{ data: PayloadDto }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('zod-passthrough')",
+      "  zodPassthrough(): Promise<{ data: OpenPassthrough }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('zod-strict')",
+      "  zodStrict(): Promise<{ data: ClosedStrict }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('generated-unsafe-first')",
+      "  generatedUnsafeFirst(): Promise<ResponseGeneratedUnsafe> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('generated-unsafe-later')",
+      "  generatedUnsafeLater(): Promise<{ data: ResponseGeneratedUnsafe }> {",
       "    throw new Error('not implemented');",
       "  }",
       ...(includeNestedObjectAlias
@@ -340,7 +373,12 @@ describe("anonymous response inference", () => {
         (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
       ),
     ).toBe(true);
-    expect(Object.keys(model.schemas)).toEqual(["PayloadDto"]);
+    expect(Object.keys(model.schemas)).toEqual([
+      "PayloadDto",
+      "OpenPassthrough",
+      "ClosedStrict",
+      "ResponseGeneratedUnsafe",
+    ]);
   });
 
   it.each([
@@ -359,7 +397,12 @@ describe("anonymous response inference", () => {
         (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
       ),
     ).toBe(true);
-    expect(Object.keys(model.schemas)).toEqual(["PayloadDto"]);
+    expect(Object.keys(model.schemas)).toEqual([
+      "PayloadDto",
+      "OpenPassthrough",
+      "ClosedStrict",
+      "ResponseGeneratedUnsafe",
+    ]);
   });
 
   it("rejects a discovered DTO class nested in a safe anonymous response", () => {
@@ -405,6 +448,66 @@ describe("anonymous response inference", () => {
         (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
       ),
     ).toBe(false);
+  });
+
+  it("rejects an open discovered Zod component but accepts a strict one", () => {
+    const model = inspectAnonymousResponse("safe");
+    const openOperation = model.operations.find(
+      (item) => item.id === "AnonymousController.zodPassthrough",
+    );
+    const strictOperation = model.operations.find(
+      (item) => item.id === "AnonymousController.zodStrict",
+    );
+
+    expect(model.schemas.OpenPassthrough).toMatchObject({
+      openapi: { additionalProperties: true },
+    });
+    expect(model.schemas.ClosedStrict).toMatchObject({
+      openapi: { additionalProperties: false },
+    });
+    expect(openOperation?.responses[0]?.inference.status).toBe("unresolved");
+    expect(
+      openOperation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
+    expect(strictOperation?.responses[0]).toMatchObject({
+      inference: { status: "inferred" },
+      schema: {
+        kind: "inline",
+        schema: {
+          properties: {
+            data: { $ref: "#/components/schemas/ClosedStrict" },
+          },
+        },
+      },
+    });
+    expect(
+      strictOperation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects a later anonymous response referencing an incomplete generated component", () => {
+    const model = inspectAnonymousResponse("safe");
+    const earlierOperation = model.operations.find(
+      (item) => item.id === "AnonymousController.generatedUnsafeFirst",
+    );
+    const laterOperation = model.operations.find(
+      (item) => item.id === "AnonymousController.generatedUnsafeLater",
+    );
+
+    expect(earlierOperation?.responses[0]?.inference.status).toBe("inferred");
+    expect(model.schemas.ResponseGeneratedUnsafe).toMatchObject({
+      properties: { extra: { type: { kind: "unknown" } } },
+    });
+    expect(laterOperation?.responses[0]?.inference.status).toBe("unresolved");
+    expect(
+      laterOperation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
   });
 
   it.each([

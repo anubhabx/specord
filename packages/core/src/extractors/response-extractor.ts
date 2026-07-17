@@ -421,7 +421,6 @@ function isSafeAnonymousTypeBranch(
   if (!(type.flags & ts.TypeFlags.Object) || visiting.has(type)) return false;
 
   const symbol = schemaSymbolForType(type);
-  const schemaName = schemaNameForType(type);
   if (
     symbol?.declarations?.some((declaration) => ts.isClassDeclaration(declaration)) ||
     checker.getIndexInfosOfType(type).length > 0 ||
@@ -430,8 +429,6 @@ function isSafeAnonymousTypeBranch(
   ) {
     return false;
   }
-  if (schemaName && discoveredSchemas[schemaName]) return true;
-
   const properties = checker.getPropertiesOfType(type);
   if (properties.length === 0 || properties.some(isMethodLikeSymbol)) return false;
 
@@ -457,6 +454,7 @@ function isCompleteResponseSchemaRef(
   ref: SchemaRef,
   discoveredSchemas: Record<string, SchemaModel>,
   generatedSchemas: Record<string, SchemaModel>,
+  visitingSchemas = new Set<string>(),
 ): boolean {
   switch (ref.kind) {
     case "unknown":
@@ -464,24 +462,81 @@ function isCompleteResponseSchemaRef(
     case "primitive":
       return true;
     case "array":
-      return isCompleteResponseSchemaRef(ref.items, discoveredSchemas, generatedSchemas);
-    case "ref":
-      return Boolean(discoveredSchemas[ref.name] || generatedSchemas[ref.name]);
+      return isCompleteResponseSchemaRef(
+        ref.items,
+        discoveredSchemas,
+        generatedSchemas,
+        visitingSchemas,
+      );
+    case "ref": {
+      if (visitingSchemas.has(ref.name)) return false;
+      const schema = discoveredSchemas[ref.name] ?? generatedSchemas[ref.name];
+      if (!schema) return false;
+
+      visitingSchemas.add(ref.name);
+      const complete = isCompleteResponseSchemaModel(
+        schema,
+        discoveredSchemas,
+        generatedSchemas,
+        visitingSchemas,
+      );
+      visitingSchemas.delete(ref.name);
+      return complete;
+    }
     case "inline":
-      return isCompleteOpenApiSchema(ref.schema, discoveredSchemas, generatedSchemas);
+      return isCompleteOpenApiSchema(
+        ref.schema,
+        discoveredSchemas,
+        generatedSchemas,
+        visitingSchemas,
+      );
   }
+}
+
+function isCompleteResponseSchemaModel(
+  schema: SchemaModel,
+  discoveredSchemas: Record<string, SchemaModel>,
+  generatedSchemas: Record<string, SchemaModel>,
+  visitingSchemas: Set<string>,
+): boolean {
+  if (
+    Object.keys(schema.properties).length === 0 ||
+    (schema.inference.status !== "inferred" && schema.inference.status !== "overridden") ||
+    !hasClosedAdditionalProperties(schema.openapi)
+  ) {
+    return false;
+  }
+
+  return Object.values(schema.properties).every((property) =>
+    isCompleteResponseSchemaRef(
+      property.type,
+      discoveredSchemas,
+      generatedSchemas,
+      visitingSchemas,
+    ),
+  );
 }
 
 function isCompleteOpenApiSchema(
   schema: OpenApiSchemaObject,
   discoveredSchemas: Record<string, SchemaModel>,
   generatedSchemas: Record<string, SchemaModel>,
+  visitingSchemas: Set<string>,
 ): boolean {
   const value = schema as Record<string, unknown>;
+  if (!hasClosedAdditionalProperties(schema)) return false;
   const ref = value.$ref;
   if (typeof ref === "string") {
     const name = ref.match(/^#\/components\/schemas\/(.+)$/)?.[1];
-    return name !== undefined && Boolean(discoveredSchemas[name] || generatedSchemas[name]);
+    return (
+      name !== undefined &&
+      isCompleteResponseSchemaRef(
+        { kind: "ref", name },
+        discoveredSchemas,
+        generatedSchemas,
+        visitingSchemas,
+      )
+    );
   }
 
   if (Array.isArray(value.anyOf)) return false;
@@ -496,6 +551,7 @@ function isCompleteOpenApiSchema(
         (firstIsNull ? second : first) as OpenApiSchemaObject,
         discoveredSchemas,
         generatedSchemas,
+        visitingSchemas,
       )
     );
   }
@@ -507,6 +563,7 @@ function isCompleteOpenApiSchema(
         value.items as OpenApiSchemaObject,
         discoveredSchemas,
         generatedSchemas,
+        visitingSchemas,
       )
     );
   }
@@ -517,7 +574,12 @@ function isCompleteOpenApiSchema(
       properties !== undefined &&
       Object.keys(properties as Record<string, unknown>).length > 0 &&
       Object.values(properties as Record<string, OpenApiSchemaObject>).every((property) =>
-        isCompleteOpenApiSchema(property, discoveredSchemas, generatedSchemas),
+        isCompleteOpenApiSchema(
+          property,
+          discoveredSchemas,
+          generatedSchemas,
+          visitingSchemas,
+        ),
       )
     );
   }
@@ -529,6 +591,14 @@ function isCompleteOpenApiSchema(
   }
 
   return false;
+}
+
+function hasClosedAdditionalProperties(
+  schema: OpenApiSchemaObject | undefined,
+): boolean {
+  if (!schema) return true;
+  const additionalProperties = (schema as Record<string, unknown>).additionalProperties;
+  return additionalProperties === undefined || additionalProperties === false;
 }
 
 function isNullOpenApiSchema(schema: unknown): boolean {
