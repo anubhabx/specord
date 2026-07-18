@@ -2,7 +2,7 @@
 
 **Phase:** 9 - Safe anonymous response inference
 **Date:** 2026-07-18
-**Status:** Healthy for the implemented acceptance scope and final local verification. Default V1 output is unchanged; opt-in safe mode reduced unresolved production API surface responses from 78 to 37 while preserving route parity and valid OpenAPI. Final safety review fixes cover canonical Nest decorator provenance through aliases and local barrels, built-in/container type provenance, explicit-export shadowing, recursive discovered/generated component validation, nullable-schema completeness, nested array item metadata, top-level anonymous-array route gating with mixed-union compatibility, and redirect/render boundaries. Pull request #4 remains open and unmerged; hosted checks and resolved review threads are mandatory delivery gates.
+**Status:** Healthy for the implemented acceptance scope and final local verification. Default V1 output is unchanged; opt-in safe mode reduced unresolved production API surface responses from 78 to 37 while preserving route parity and valid OpenAPI. Final safety review fixes cover canonical Nest decorator provenance through aliases and local barrels, compiler-semantic `Promise`/`Observable` container resolution through aliases and qualified references, lookalike rejection, nullable anonymous roots, explicit-export shadowing, recursive discovered/generated component validation, nullable-schema completeness, nested array item metadata, top-level anonymous-array route gating with mixed-union compatibility, and redirect/render boundaries. Pull request #4 remains open and unmerged; hosted checks and resolved review threads are mandatory delivery gates.
 
 ---
 
@@ -18,18 +18,19 @@ Measured against the production server checkout, safe mode preserved 107 paths a
 | --- | --- |
 | Configuration | Optional `inference.responses.anonymousObjects` policy with runtime validation for `"off"` and `"safe"` |
 | Extraction | Closed anonymous response inference behind the opt-in policy |
-| Safety boundary | Whole-shape rejection for index signatures, call/construct signatures, methods, classes, records, unknown members, complex unions, dangling or incomplete component references, non-canonical `Date`/`Promise`/`Observable` identities, manual responses, visible response transforms, redirects, and rendered views from canonical `@nestjs/common` decorators; the route gate also covers array-wrapped anonymous objects, and accepted nested arrays preserve enum, format, and nullability metadata |
+| Safety boundary | Whole-shape rejection for index signatures, call/construct signatures, methods, classes, records, unknown members, complex unions, dangling or incomplete component references, non-canonical `Date`/`Promise`/`Observable` identities, manual responses, visible response transforms, redirects, and rendered views from canonical `@nestjs/common` decorators; compiler-semantic container unwrapping supports canonical aliases and qualified references without admitting project-local lookalikes; the route gate also covers nullable and array-wrapped anonymous objects, and accepted nested arrays preserve enum, format, and nullability metadata |
 | Precedence | Swagger success responses and operation response overrides remain authoritative |
-| Tests and docs | Focused response/config coverage, cyclic-config and controller-transform hardening, normative contract, and configuration guidance |
+| Tests and docs | Focused response/config coverage, cyclic-config and controller-transform hardening, nullable-root and semantic-container regressions, normative contract, and configuration guidance |
 
 ## Acceptance Matrix
 
 | Criterion | Status | Evidence |
 | --- | --- | --- |
 | Package builds | Pass | `@specord/types`, `@specord/core`, `@specord/openapi`, and `@specord/cli` builds passed with pnpm 10.33.4 |
-| Core regression suite | Pass | 15 files, 124 tests passed after config, transform/non-JSON-boundary, scoped anonymous-array, mixed-root-union, decorator/type-provenance, barrel-shadowing, nullable-schema, array-metadata, and component-completeness hardening |
-| Fresh uncached workspace build | Pass | `pnpm.cmd exec turbo run build --force`: 6/6 tasks, 0 cached, six packages, 6.317s |
-| Fresh uncached workspace test | Pass | `pnpm.cmd exec turbo run test --force`: 12/12 tasks, 0 cached, 22 files and 152 tests across six packages, 43.974s |
+| Focused anonymous-response suite | Pass | 52/52 tests, including nullable roots, undefined rejection, manual nullable boundaries, canonical aliased/qualified/nested/transformed containers, non-canonical lookalikes, and `PromiseLike` rejection |
+| Core regression suite | Pass | 15 files, 127 tests passed after config, transform/non-JSON-boundary, scoped anonymous-array, mixed-root-union, decorator/type-provenance, barrel-shadowing, nullable-root/schema, semantic-container, array-metadata, and component-completeness hardening |
+| Fresh uncached workspace build | Pass | `pnpm.cmd exec turbo run build --force`: 6/6 tasks, 0 cached, six packages, 5.585s |
+| Fresh uncached workspace test | Pass | `pnpm.cmd exec turbo run test --force`: 12/12 tasks, 0 cached, 22 files and 155 tests across six packages, 43.911s |
 | Workspace lint coverage | Not configured | `pnpm.cmd lint` exited 0, but Turbo executed 0 tasks and warned `No tasks were executed`; this is not lint coverage |
 | Canonical snapshot and acceptance tests | Pass | 2 files, 16 tests passed |
 | Canonical inspect/generate | Pass | Both commands exited 0; canonical model remains 7 controllers, 22 paths, 27 operations, and 42 schemas |
@@ -66,7 +67,9 @@ The 37 safe-mode residual responses are intentional: 23 are anonymous shapes rej
 
 ## Architecture Capabilities
 
-The system can infer a complete anonymous structural response only after TypeScript exposes a closed object shape and every nested member is representable without a partial, open, cyclic, or dangling schema. Nested supported primitives, literals, nullable values, arrays, dates, anonymous objects, and recursively complete discovered or response-generated references are supported.
+The system can infer a complete anonymous structural response only after TypeScript exposes a closed object shape and every nested member is representable without a partial, open, cyclic, or dangling schema. A root with exactly one anonymous object branch plus `null` is checked as that object and emitted with nullability intact. Nested supported primitives, literals, nullable values, arrays, dates, anonymous objects, and recursively complete discovered or response-generated references are supported.
+
+In safe mode, TypeScript compiler identity unwraps canonical `Promise` and installed RxJS `Observable` containers through import aliases, namespace-qualified references, transforming type aliases, and nested containers. Project-local lookalikes, ambient RxJS spoofs, `PromiseLike`, and non-canonical containers remain unresolved. The default/off annotation path remains unchanged.
 
 The system cannot infer runtime serialization/interceptor/filter effects, manually written responses, open records/index signatures, unknown or `any` members, callable/constructable objects, classes/framework wrappers, complex unions, or incomplete nested shapes. Those cases deliberately remain unresolved and retain their override path.
 
@@ -74,12 +77,12 @@ The system cannot infer runtime serialization/interceptor/filter effects, manual
 
 | Metric | Value |
 | --- | ---: |
-| Final branch commits (including report sync) | 33 |
+| Final branch commits (including report sync) | 35 |
 | Final tracked files changed | 11 |
-| Final insertions | 3,018 |
-| Final deletions | 39 |
-| Current core suite | 15 files, 124 tests |
-| Fresh workspace suite | 22 files, 152 tests across six packages |
+| Final insertions | 3,200 |
+| Final deletions | 38 |
+| Current core suite | 15 files, 127 tests |
+| Fresh workspace suite | 22 files, 155 tests across six packages |
 | New runtime dependencies | 0 |
 | Package-manifest/lockfile dependency delta | 0 |
 
@@ -93,7 +96,8 @@ The system cannot infer runtime serialization/interceptor/filter effects, manual
 | Reject visible response-transform boundaries | Static return types cannot prove runtime serialization output |
 | Treat redirects, rendered views, and anonymous arrays as route-boundary cases | Canonical non-JSON decorators and array wrappers must not bypass the same safe-mode route gate |
 | Scope the array route gate to array roots and nullable wrappers | Mixed root unions retain legacy behavior instead of being swept into the opt-in array safety gate |
-| Resolve only canonical response-boundary identities | Canonical Nest decorators are followed through imports and barrels; type-name-only `Date`, `Promise`, or `Observable` matches are not trusted, while installed RxJS module augmentation remains supported |
+| Resolve only canonical response-boundary and container identities | Canonical Nest decorators are followed through imports and barrels; safe-mode `Promise` and `Observable` wrappers use compiler-resolved identity through aliases, qualified names, and nested or transforming type aliases; project-local lookalikes are rejected while installed RxJS module augmentation remains supported |
+| Treat nullable anonymous roots as one eligible branch | A root union of exactly one anonymous object plus `null` is checked whole-shape and emitted nullable; `undefined` does not silently become a nullable response |
 | Validate referenced component contents recursively | A discovered or earlier-generated name is not proof that its schema is closed and complete |
 | Preserve nested array metadata only in safe mode | Accepted safe responses retain enum, format, and nullability on array items without changing default/off output |
 | Keep open records unresolved | Arbitrary keys and unknown values cannot be safely modeled as a closed object |
@@ -115,7 +119,8 @@ The work follows the design/RFC boundary in [RFC issue #3](https://github.com/an
 | Risk | Severity | Mitigation |
 | --- | --- | --- |
 | Static source type differs from runtime serialization | Medium | Keep the feature opt-in, reject visible transform/manual/non-JSON boundaries including array wrappers, and retain explicit overrides |
-| A partial or metadata-losing schema is accepted | Medium | Enforce recursive type and emitted-schema completeness; focused regression tests cover unsafe roots, nested shapes, nullable schemas, and array item metadata |
+| A partial or metadata-losing schema is accepted | Medium | Enforce recursive type and emitted-schema completeness; focused regression tests cover unsafe roots, nullable root emission, nested shapes, nullable schemas, and array item metadata |
+| A source-spelled container alias bypasses provenance | Medium | Resolve safe-mode container identity and instantiated payloads through the TypeScript checker; reject lookalikes and cover alias, qualification, nesting, transformation, and ambient-spoof cases |
 | Future type-family expansion changes default output | Medium | Default remains `"off"`; canonical snapshot/hash checks are mandatory |
 | Residual path diagnostics are mistaken for response work | Low | Keep their count separate and schedule independent investigation |
 | Production checkout state drifts | Medium | Keep benchmark local/opt-in and record target status before and after measurement |
