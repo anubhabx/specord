@@ -479,6 +479,12 @@ type TypeSchema = {
   format?: string;
 };
 
+type SchemaFromTypeOptions = {
+  nameHint?: string;
+  allowAnonymousObject: boolean;
+  preserveArrayItemMetadata?: boolean;
+};
+
 /**
  * Analyze the handler method's return type to infer a response schema.
  */
@@ -538,6 +544,7 @@ function inferReturnType(
     {
       nameHint: resolved.nameHint,
       allowAnonymousObject: safeAnonymousRoot,
+      preserveArrayItemMetadata: safeAnonymousRoot,
     },
   );
   const schemaRef = schema.type;
@@ -1059,10 +1066,7 @@ function schemaFromType(
   discoveredSchemas: Record<string, SchemaModel>,
   generatedSchemas: Record<string, SchemaModel>,
   resolving: Set<string>,
-  options: {
-    nameHint?: string;
-    allowAnonymousObject: boolean;
-  },
+  options: SchemaFromTypeOptions,
 ): TypeSchema {
   const union = unionSchemaFromType(
     type,
@@ -1096,19 +1100,28 @@ function schemaFromType(
 
   if (checker.isArrayType(type)) {
     const [itemType] = getTypeArguments(type, checker);
+    const itemSchema = itemType
+      ? schemaFromType(
+          itemType,
+          checker,
+          root,
+          discoveredSchemas,
+          generatedSchemas,
+          resolving,
+          {
+            allowAnonymousObject: true,
+            preserveArrayItemMetadata: options.preserveArrayItemMetadata,
+          },
+        )
+      : undefined;
     return {
       type: {
         kind: "array",
-        items: itemType
-          ? schemaFromType(
-              itemType,
-              checker,
-              root,
-              discoveredSchemas,
-              generatedSchemas,
-              resolving,
-              { allowAnonymousObject: true },
-            ).type
+        items: itemSchema
+          ? typeSchemaToSchemaRef(
+              itemSchema,
+              options.preserveArrayItemMetadata === true,
+            )
           : { kind: "unknown" },
       },
     };
@@ -1146,6 +1159,7 @@ function schemaFromType(
       generatedSchemas,
       resolving,
       schemaSymbol,
+      options.preserveArrayItemMetadata === true,
     );
     resolving.delete(schemaName);
 
@@ -1163,6 +1177,7 @@ function schemaFromType(
       discoveredSchemas,
       generatedSchemas,
       resolving,
+      options.preserveArrayItemMetadata === true,
     );
     if (properties) {
       return {
@@ -1187,10 +1202,7 @@ function unionSchemaFromType(
   discoveredSchemas: Record<string, SchemaModel>,
   generatedSchemas: Record<string, SchemaModel>,
   resolving: Set<string>,
-  options: {
-    nameHint?: string;
-    allowAnonymousObject: boolean;
-  },
+  options: SchemaFromTypeOptions,
 ): TypeSchema | undefined {
   if (!type.isUnion()) return undefined;
 
@@ -1236,7 +1248,10 @@ function unionSchemaFromType(
         discoveredSchemas,
         generatedSchemas,
         resolving,
-        { allowAnonymousObject: true },
+        {
+          allowAnonymousObject: true,
+          preserveArrayItemMetadata: options.preserveArrayItemMetadata,
+        },
       ),
     ),
   );
@@ -1272,6 +1287,7 @@ function schemaModelFromObjectType(
   generatedSchemas: Record<string, SchemaModel>,
   resolving: Set<string>,
   symbol: ts.Symbol,
+  preserveArrayItemMetadata: boolean,
 ): SchemaModel | undefined {
   const extracted = propertiesFromType(
     type,
@@ -1280,6 +1296,7 @@ function schemaModelFromObjectType(
     discoveredSchemas,
     generatedSchemas,
     resolving,
+    preserveArrayItemMetadata,
   );
   if (!extracted) return undefined;
 
@@ -1299,6 +1316,7 @@ function propertiesFromType(
   discoveredSchemas: Record<string, SchemaModel>,
   generatedSchemas: Record<string, SchemaModel>,
   resolving: Set<string>,
+  preserveArrayItemMetadata: boolean,
 ): {
   properties: Record<string, PropertyModel>;
   required: string[];
@@ -1327,7 +1345,10 @@ function propertiesFromType(
       discoveredSchemas,
       generatedSchemas,
       resolving,
-      { allowAnonymousObject: true },
+      {
+        allowAnonymousObject: true,
+        preserveArrayItemMetadata,
+      },
     );
 
     properties[propertyName] = {
@@ -1351,6 +1372,22 @@ function typeSchemaToOpenApi(schema: TypeSchema): OpenApiSchemaObject {
   if (schema.enum !== undefined) next.enum = schema.enum;
   if (schema.format !== undefined) next.format = schema.format;
   return (schema.nullable ? applyNullableOpenApi(next) : next) as OpenApiSchemaObject;
+}
+
+function typeSchemaToSchemaRef(
+  schema: TypeSchema,
+  preserveMetadata: boolean,
+): SchemaRef {
+  if (
+    !preserveMetadata ||
+    (schema.enum === undefined &&
+      schema.format === undefined &&
+      schema.nullable !== true)
+  ) {
+    return schema.type;
+  }
+
+  return { kind: "inline", schema: typeSchemaToOpenApi(schema) };
 }
 
 function propertiesToOpenApiObject(

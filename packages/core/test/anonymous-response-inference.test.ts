@@ -119,6 +119,9 @@ function inspectAnonymousResponse(
       "    mode: 'draft' | 'live';",
       "    updatedAt: Date;",
       "    tags?: string[];",
+      "    statuses: ('draft' | 'live')[];",
+      "    dates: Date[];",
+      "    nullableTags: (string | null)[];",
       "    metrics: { count: number | null };",
       "  }> {",
       "    throw new Error('not implemented');",
@@ -550,13 +553,34 @@ describe("anonymous response inference", () => {
         kind: "inline",
         schema: {
           type: "object",
-          required: ["id", "active", "mode", "updatedAt", "metrics"],
+          required: [
+            "id",
+            "active",
+            "mode",
+            "updatedAt",
+            "statuses",
+            "dates",
+            "nullableTags",
+            "metrics",
+          ],
           properties: {
             id: { type: "string" },
             active: { type: "boolean" },
             mode: { type: "string", enum: ["draft", "live"] },
             updatedAt: { type: "string", format: "date-time" },
             tags: { type: "array", items: { type: "string" } },
+            statuses: {
+              type: "array",
+              items: { type: "string", enum: ["draft", "live"] },
+            },
+            dates: {
+              type: "array",
+              items: { type: "string", format: "date-time" },
+            },
+            nullableTags: {
+              type: "array",
+              items: { type: ["string", "null"] },
+            },
             metrics: {
               type: "object",
               required: ["count"],
