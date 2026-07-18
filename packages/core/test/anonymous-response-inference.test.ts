@@ -58,22 +58,32 @@ function inspectAnonymousResponse(
   );
 
   fs.writeFileSync(
-    path.join(srcRoot, "response-decorators.ts"),
+    path.join(srcRoot, "nestjs-common.d.ts"),
     [
-      "export declare function Res(): ParameterDecorator;",
-      "export declare function Response(): ParameterDecorator;",
-      "export declare function UseInterceptors(...interceptors: unknown[]): MethodDecorator & ClassDecorator;",
-      "export declare function UseFilters(...filters: unknown[]): MethodDecorator & ClassDecorator;",
-      "export declare function SerializeOptions(options: unknown): MethodDecorator & ClassDecorator;",
-      "export declare const nested: {",
-      "  UseFilters(...filters: unknown[]): MethodDecorator & ClassDecorator;",
-      "};",
+      "declare module '@nestjs/common' {",
+      "  export function Res(): ParameterDecorator;",
+      "  export function Response(): ParameterDecorator;",
+      "  export function UseInterceptors(...interceptors: unknown[]): MethodDecorator & ClassDecorator;",
+      "  export function UseFilters(...filters: unknown[]): MethodDecorator & ClassDecorator;",
+      "  export function SerializeOptions(options: unknown): MethodDecorator & ClassDecorator;",
+      "  export const nested: {",
+      "    UseFilters(...filters: unknown[]): MethodDecorator & ClassDecorator;",
+      "  };",
+      "}",
     ].join("\n"),
   );
 
   fs.writeFileSync(
     path.join(srcRoot, "response-decorator-barrel.ts"),
-    ["export { UseInterceptors as Alias } from './response-decorators';"].join("\n"),
+    ["export { UseInterceptors as Alias } from '@nestjs/common';"].join("\n"),
+  );
+
+  fs.writeFileSync(
+    path.join(srcRoot, "unrelated-response-decorators.ts"),
+    [
+      "export declare function UseFilters(): MethodDecorator;",
+      "export declare function Response(): ParameterDecorator;",
+    ].join("\n"),
   );
 
   fs.writeFileSync(
@@ -88,8 +98,8 @@ function inspectAnonymousResponse(
       includeNestedObjectAlias
         ? "import { PayloadDto, type NestedObjectAlias, type OpenPassthrough, type ClosedStrict, type ResponseGeneratedUnsafe } from './payload.dto';"
         : "import { PayloadDto, type OpenPassthrough, type ClosedStrict, type ResponseGeneratedUnsafe } from './payload.dto';",
-      "import { Res, Response, UseInterceptors, UseFilters, SerializeOptions, Res as ManualResponse, UseInterceptors as TransformResponse } from './response-decorators';",
-      "import * as ResponseDecorators from './response-decorators';",
+      "import { Res, Response, UseInterceptors, UseFilters, SerializeOptions, Res as ManualResponse, UseInterceptors as TransformResponse } from '@nestjs/common';",
+      "import * as ResponseDecorators from '@nestjs/common';",
       "import * as DecoratorBarrel from './response-decorator-barrel';",
       "@Controller('anonymous')",
       "class AnonymousController {",
@@ -255,6 +265,7 @@ function inspectAnonymousResponse(
   fs.writeFileSync(
     path.join(srcRoot, "unrelated-decorator.controller.ts"),
     [
+      "import { UseFilters as ImportedUseFilters, Response as ImportedResponse } from './unrelated-response-decorators';",
       "declare function Controller(path?: string): ClassDecorator;",
       "declare function Get(path?: string): MethodDecorator;",
       "declare function UseInterceptors(): MethodDecorator;",
@@ -282,6 +293,15 @@ function inspectAnonymousResponse(
       "  }",
       "  @Get('local-manual')",
       "  localManual(@Response() response: unknown): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('imported-transform')",
+      "  @ImportedUseFilters()",
+      "  importedTransform(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('imported-manual')",
+      "  importedManual(@ImportedResponse() response: unknown): Promise<{ ok: boolean }> {",
       "    throw new Error('not implemented');",
       "  }",
       "}",
@@ -550,6 +570,8 @@ describe("anonymous response inference", () => {
     "UnrelatedDecoratorController.property",
     "UnrelatedDecoratorController.ambientTransform",
     "UnrelatedDecoratorController.localManual",
+    "UnrelatedDecoratorController.importedTransform",
+    "UnrelatedDecoratorController.importedManual",
     "AnonymousController.nestedFilter",
   ])("infers a closed response with unrelated decorator %s", (operationId) => {
     const model = inspectAnonymousResponse("safe");

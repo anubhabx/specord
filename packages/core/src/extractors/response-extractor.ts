@@ -41,6 +41,7 @@ const RESPONSE_TRANSFORM_DECORATORS = [
   "SerializeOptions",
   "UseFilters",
 ] as const;
+const NEST_COMMON_MODULE = "@nestjs/common";
 
 export function routeAllowsSafeAnonymousInference(
   route: DiscoveredRoute,
@@ -88,17 +89,16 @@ function isResolvedDecoratorNamed(
     return isNamespaceDecoratorReference(target, names, checker);
   }
 
-  let symbol = checker.getSymbolAtLocation(target);
-  let followedAlias = false;
-
-  while (symbol && symbol.flags & ts.SymbolFlags.Alias) {
-    followedAlias = true;
-    const aliased = checker.getAliasedSymbol(symbol);
-    if (aliased === symbol) break;
-    symbol = aliased;
-  }
-
-  return followedAlias && symbol !== undefined && names.includes(symbol.getName());
+  const resolved = resolveDecoratorSymbol(
+    checker.getSymbolAtLocation(target),
+    checker,
+  );
+  return (
+    resolved.followedAlias &&
+    resolved.hasNestCommonProvenance &&
+    resolved.symbol !== undefined &&
+    names.includes(resolved.symbol.getName())
+  );
 }
 
 function isNamespaceDecoratorReference(
@@ -113,27 +113,74 @@ function isNamespaceDecoratorReference(
     return false;
   }
 
-  const decoratorSymbol = resolveTerminalSymbol(
+  const decoratorSymbol = resolveDecoratorSymbol(
     checker.getSymbolAtLocation(target.name),
     checker,
   );
-  return decoratorSymbol !== undefined && names.includes(decoratorSymbol.getName());
+  return (
+    decoratorSymbol.symbol !== undefined &&
+    names.includes(decoratorSymbol.symbol.getName()) &&
+    (symbolHasNestCommonProvenance(qualifierSymbol) ||
+      decoratorSymbol.hasNestCommonProvenance)
+  );
 }
 
-function resolveTerminalSymbol(
+function resolveDecoratorSymbol(
   symbol: ts.Symbol | undefined,
   checker: ts.TypeChecker,
-): ts.Symbol | undefined {
+): {
+  symbol?: ts.Symbol;
+  followedAlias: boolean;
+  hasNestCommonProvenance: boolean;
+} {
   const seen = new Set<ts.Symbol>();
   let current = symbol;
+  let followedAlias = false;
+  let hasNestCommonProvenance = false;
 
-  while (current && current.flags & ts.SymbolFlags.Alias) {
-    if (seen.has(current)) return undefined;
+  while (current) {
+    hasNestCommonProvenance ||= symbolHasNestCommonProvenance(current);
+    if (!(current.flags & ts.SymbolFlags.Alias)) break;
+    if (seen.has(current)) {
+      return { followedAlias, hasNestCommonProvenance };
+    }
     seen.add(current);
+    followedAlias = true;
     current = checker.getAliasedSymbol(current);
   }
 
-  return current;
+  return { symbol: current, followedAlias, hasNestCommonProvenance };
+}
+
+function symbolHasNestCommonProvenance(symbol: ts.Symbol): boolean {
+  return symbol.declarations?.some((declaration) => {
+    let current: ts.Node | undefined = declaration;
+    while (current) {
+      if (
+        (ts.isImportDeclaration(current) || ts.isExportDeclaration(current)) &&
+        current.moduleSpecifier &&
+        ts.isStringLiteral(current.moduleSpecifier) &&
+        isNestCommonModuleSpecifier(current.moduleSpecifier.text)
+      ) {
+        return true;
+      }
+      if (
+        ts.isModuleDeclaration(current) &&
+        ts.isStringLiteral(current.name) &&
+        isNestCommonModuleSpecifier(current.name.text)
+      ) {
+        return true;
+      }
+      current = current.parent;
+    }
+
+    const sourcePath = declaration.getSourceFile().fileName.replaceAll("\\", "/");
+    return sourcePath.includes("/node_modules/@nestjs/common/");
+  }) === true;
+}
+
+function isNestCommonModuleSpecifier(value: string): boolean {
+  return value === NEST_COMMON_MODULE || value.startsWith(`${NEST_COMMON_MODULE}/`);
 }
 
 /** Result of response extraction for a single route. */
