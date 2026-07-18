@@ -93,11 +93,15 @@ function isResolvedDecoratorNamed(
     checker.getSymbolAtLocation(target),
     checker,
   );
+  const terminalName = resolved.symbol?.getName();
+  const decoratorName = terminalName && terminalName !== "unknown"
+    ? terminalName
+    : resolved.nestCommonImportedName;
   return (
     resolved.followedAlias &&
     resolved.hasNestCommonProvenance &&
-    resolved.symbol !== undefined &&
-    names.includes(resolved.symbol.getName())
+    decoratorName !== undefined &&
+    names.includes(decoratorName)
   );
 }
 
@@ -117,10 +121,17 @@ function isNamespaceDecoratorReference(
     checker.getSymbolAtLocation(target.name),
     checker,
   );
+  const qualifierHasNestCommonProvenance =
+    symbolHasNestCommonProvenance(qualifierSymbol);
+  const terminalName = decoratorSymbol.symbol?.getName();
+  const decoratorName = terminalName && terminalName !== "unknown"
+    ? terminalName
+    : decoratorSymbol.nestCommonImportedName ??
+      (qualifierHasNestCommonProvenance ? target.name.text : undefined);
   return (
-    decoratorSymbol.symbol !== undefined &&
-    names.includes(decoratorSymbol.symbol.getName()) &&
-    (symbolHasNestCommonProvenance(qualifierSymbol) ||
+    decoratorName !== undefined &&
+    names.includes(decoratorName) &&
+    (qualifierHasNestCommonProvenance ||
       decoratorSymbol.hasNestCommonProvenance)
   );
 }
@@ -132,51 +143,75 @@ function resolveDecoratorSymbol(
   symbol?: ts.Symbol;
   followedAlias: boolean;
   hasNestCommonProvenance: boolean;
+  nestCommonImportedName?: string;
 } {
   const seen = new Set<ts.Symbol>();
   let current = symbol;
   let followedAlias = false;
   let hasNestCommonProvenance = false;
+  let nestCommonImportedName: string | undefined;
 
   while (current) {
     hasNestCommonProvenance ||= symbolHasNestCommonProvenance(current);
+    nestCommonImportedName ??= nestCommonImportedNameForSymbol(current);
     if (!(current.flags & ts.SymbolFlags.Alias)) break;
     if (seen.has(current)) {
-      return { followedAlias, hasNestCommonProvenance };
+      return {
+        followedAlias,
+        hasNestCommonProvenance,
+        nestCommonImportedName,
+      };
     }
     seen.add(current);
     followedAlias = true;
     current = checker.getAliasedSymbol(current);
   }
 
-  return { symbol: current, followedAlias, hasNestCommonProvenance };
+  return {
+    symbol: current,
+    followedAlias,
+    hasNestCommonProvenance,
+    nestCommonImportedName,
+  };
 }
 
 function symbolHasNestCommonProvenance(symbol: ts.Symbol): boolean {
-  return symbol.declarations?.some((declaration) => {
-    let current: ts.Node | undefined = declaration;
-    while (current) {
-      if (
-        (ts.isImportDeclaration(current) || ts.isExportDeclaration(current)) &&
-        current.moduleSpecifier &&
-        ts.isStringLiteral(current.moduleSpecifier) &&
-        isNestCommonModuleSpecifier(current.moduleSpecifier.text)
-      ) {
-        return true;
-      }
-      if (
-        ts.isModuleDeclaration(current) &&
-        ts.isStringLiteral(current.name) &&
-        isNestCommonModuleSpecifier(current.name.text)
-      ) {
-        return true;
-      }
-      current = current.parent;
-    }
+  return symbol.declarations?.some(declarationHasNestCommonProvenance) === true;
+}
 
-    const sourcePath = declaration.getSourceFile().fileName.replaceAll("\\", "/");
-    return sourcePath.includes("/node_modules/@nestjs/common/");
-  }) === true;
+function nestCommonImportedNameForSymbol(symbol: ts.Symbol): string | undefined {
+  for (const declaration of symbol.declarations ?? []) {
+    if (!declarationHasNestCommonProvenance(declaration)) continue;
+    if (ts.isImportSpecifier(declaration) || ts.isExportSpecifier(declaration)) {
+      return (declaration.propertyName ?? declaration.name).text;
+    }
+  }
+  return undefined;
+}
+
+function declarationHasNestCommonProvenance(declaration: ts.Declaration): boolean {
+  let current: ts.Node | undefined = declaration;
+  while (current) {
+    if (
+      (ts.isImportDeclaration(current) || ts.isExportDeclaration(current)) &&
+      current.moduleSpecifier &&
+      ts.isStringLiteral(current.moduleSpecifier) &&
+      isNestCommonModuleSpecifier(current.moduleSpecifier.text)
+    ) {
+      return true;
+    }
+    if (
+      ts.isModuleDeclaration(current) &&
+      ts.isStringLiteral(current.name) &&
+      isNestCommonModuleSpecifier(current.name.text)
+    ) {
+      return true;
+    }
+    current = current.parent;
+  }
+
+  const sourcePath = declaration.getSourceFile().fileName.replaceAll("\\", "/");
+  return sourcePath.includes("/node_modules/@nestjs/common/");
 }
 
 function isNestCommonModuleSpecifier(value: string): boolean {

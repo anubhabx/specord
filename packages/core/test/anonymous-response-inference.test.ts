@@ -323,6 +323,47 @@ function inspectAnonymousResponse(
   );
 }
 
+function inspectUnresolvedCanonicalDecorators() {
+  const projectRoot = createTempProject(tempRoots, {
+    prefix: "specord-unresolved-response-decorator-",
+  });
+  const srcRoot = path.join(projectRoot, "src");
+
+  fs.writeFileSync(
+    path.join(srcRoot, "unresolved.controller.ts"),
+    [
+      "import { UseFilters as ImportedTransform, Response as ImportedResponse } from '@nestjs/common';",
+      "import * as NestCommon from '@nestjs/common';",
+      "declare function Controller(path?: string): ClassDecorator;",
+      "declare function Get(path?: string): MethodDecorator;",
+      "@Controller('unresolved-decorators')",
+      "class UnresolvedDecoratorController {",
+      "  @Get('named')",
+      "  @ImportedTransform()",
+      "  named(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('namespace')",
+      "  @NestCommon.UseFilters()",
+      "  namespace(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('manual')",
+      "  manual(@ImportedResponse() response: unknown): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "}",
+    ].join("\n"),
+  );
+
+  return inspect(
+    resolveConfig(
+      { project: path.join(projectRoot, "tsconfig.json"), root: srcRoot },
+      { inference: { responses: { anonymousObjects: "safe" } } },
+    ),
+  );
+}
+
 describe("anonymous response inference", () => {
   it("infers a closed anonymous response object in safe mode", () => {
     const model = inspectAnonymousResponse("safe");
@@ -382,6 +423,24 @@ describe("anonymous response inference", () => {
         (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
       ),
     ).toBe(true);
+  });
+
+  it("blocks unresolved canonical Nest response decorators", () => {
+    const model = inspectUnresolvedCanonicalDecorators();
+
+    for (const operationId of [
+      "UnresolvedDecoratorController.named",
+      "UnresolvedDecoratorController.namespace",
+      "UnresolvedDecoratorController.manual",
+    ]) {
+      const operation = model.operations.find((item) => item.id === operationId);
+      expect(operation?.responses[0]?.inference.status).toBe("unresolved");
+      expect(
+        operation?.diagnostics.some(
+          (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+        ),
+      ).toBe(true);
+    }
   });
 
   it.each([
