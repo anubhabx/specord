@@ -46,8 +46,9 @@ intentionally unconstrained.
 ### 1. Opt-in safe structural inference (selected)
 
 Add a narrow config mode that preserves the V1 default and only accepts a
-closed compiler-visible object shape. This gives the private dogfood workflow a
-high-value path without silently changing established output for other users.
+closed compiler-visible object shape. This gives the production-server dogfood
+workflow a high-value path without silently changing established output for
+other users.
 
 ### 2. Enable anonymous inference by default
 
@@ -104,8 +105,8 @@ eligible only when all of the following are true:
    response-boundary marker.
 
 A root union containing `null` and exactly one non-nullish anonymous branch is
-checked as that branch, then emitted with its nullability intact. `undefined`
-and multi-shape root unions do not gain anonymous-root eligibility. A
+checked as that branch, then emitted with its nullability intact. `undefined`,
+`void`, and multi-shape root unions do not gain anonymous-root eligibility. A
 multi-shape root with any direct anonymous object branch or anonymous object
 beneath an array branch is explicitly rejected in safe mode and still passes
 through the route-boundary gate; default/off keep their legacy `oneOf` behavior.
@@ -131,7 +132,8 @@ Supported nested forms are:
 - `Date` as an OpenAPI `string` with `date-time` format;
 - arrays whose item shape is complete;
 - nested closed anonymous objects;
-- references to discovered or response-generated schemas; and
+- references to non-generic discovered or response-generated schemas, including
+  monomorphically named aliases to specialized generic objects; and
 - nullable variants of an otherwise complete supported type.
 
 The whole response remains unresolved if any nested branch contains:
@@ -139,6 +141,8 @@ The whole response remains unresolved if any nested branch contains:
 - `any`, `unknown`, or `never`;
 - an empty or unconstrained schema object;
 - an index signature or `Record` shape;
+- an `undefined` branch outside an optional object-property boundary;
+- a reference whose selected schema declaration has generic type parameters;
 - a dangling component reference;
 - a callable, constructable, class, or framework response shape;
 - a complex non-literal union or conditional type; or
@@ -223,7 +227,7 @@ continue to remove only the directly resolved response diagnostic.
   counts, acceptance results, architecture capabilities, decisions, roadmap,
   and risks.
 - Public issue and PR text use `production server` or `production API surface`;
-  private target names do not appear in new public artifacts.
+  target-specific names do not appear in new public artifacts.
 
 ## Risks and Mitigations
 

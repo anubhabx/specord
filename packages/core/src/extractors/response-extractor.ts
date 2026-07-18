@@ -761,6 +761,7 @@ function isSafeAnonymousTypeBranch(
   root: string,
   discoveredSchemas: Record<string, SchemaModel>,
   visiting: Set<ts.Type>,
+  allowUndefinedAsOptionalProperty = false,
 ): boolean {
   if (
     type.flags &
@@ -779,6 +780,11 @@ function isSafeAnonymousTypeBranch(
   if (literalValueFromType(type, checker) !== undefined) return true;
 
   if (type.isUnion()) {
+    const hasUndefined = type.types.some(
+      (part) => !!(part.flags & ts.TypeFlags.Undefined),
+    );
+    if (hasUndefined && !allowUndefinedAsOptionalProperty) return false;
+
     const activeTypes = type.types.filter(
       (part) =>
         !(part.flags & ts.TypeFlags.Null) &&
@@ -806,6 +812,8 @@ function isSafeAnonymousTypeBranch(
     );
   }
 
+  if (hasGenericSchemaParameters(type)) return false;
+
   if (schemaNameForType(type) === "Date") {
     return isTypeScriptLibType(type, "Date");
   }
@@ -827,14 +835,17 @@ function isSafeAnonymousTypeBranch(
   visiting.add(type);
   const complete = properties.every((property) => {
     const location = firstDeclaration(property) ?? type.symbol?.valueDeclaration;
+    if (!location) return false;
+
+    const propertyType = checker.getTypeOfSymbolAtLocation(property, location);
     return (
-      location !== undefined &&
       isSafeAnonymousTypeBranch(
-        checker.getTypeOfSymbolAtLocation(property, location),
+        propertyType,
         checker,
         root,
         discoveredSchemas,
         visiting,
+        isOptionalProperty(property, propertyType),
       )
     );
   });
@@ -1582,6 +1593,23 @@ function schemaNameForType(type: ts.Type): string | undefined {
 
 function schemaSymbolForType(type: ts.Type): ts.Symbol | undefined {
   return type.aliasSymbol ?? type.getSymbol();
+}
+
+function hasGenericSchemaParameters(type: ts.Type): boolean {
+  if (
+    !(type.flags & ts.TypeFlags.Object) ||
+    schemaNameForType(type) === undefined
+  ) {
+    return false;
+  }
+
+  const symbol = schemaSymbolForType(type);
+  return symbol?.declarations?.some(
+    (declaration) =>
+      (ts.isInterfaceDeclaration(declaration) ||
+        ts.isTypeAliasDeclaration(declaration)) &&
+      (declaration.typeParameters?.length ?? 0) > 0,
+  ) === true;
 }
 
 function isSchemaDeclarationSymbol(symbol: ts.Symbol): boolean {

@@ -19,6 +19,7 @@ function inspectAnonymousResponse(
   anonymousObjects?: "off" | "safe",
   overrides?: Pick<SpecordConfigV1, "operations">,
   includeNestedObjectAlias = false,
+  includeGenericReferences = false,
 ) {
   const projectRoot = createTempProject(tempRoots, {
     prefix: "specord-anonymous-response-",
@@ -106,6 +107,14 @@ function inspectAnonymousResponse(
       "declare const ResponseInterceptor: unknown;",
       "declare const ResponseFilter: unknown;",
       "declare class Buffer { readonly length: number; }",
+      ...(includeGenericReferences
+        ? [
+            "interface ResponseBox<T> { value: T; }",
+            "type ResponseEnvelope<T> = { value: T };",
+            "type StringBox = ResponseBox<string>;",
+            "type NumberEnvelope = ResponseEnvelope<number>;",
+          ]
+        : []),
       includeNestedObjectAlias
         ? "import { PayloadDto, type NestedObjectAlias, type OpenPassthrough, type ClosedStrict, type ResponseGeneratedUnsafe } from './payload.dto';"
         : "import { PayloadDto, type OpenPassthrough, type ClosedStrict, type ResponseGeneratedUnsafe } from './payload.dto';",
@@ -184,6 +193,14 @@ function inspectAnonymousResponse(
       "  unsafeArray(): Promise<{ data: unknown }[]> {",
       "    throw new Error('not implemented');",
       "  }",
+      "  @Get('nested-undefined-array')",
+      "  nestedUndefinedArray(): Promise<{ items: ({ ok: boolean } | undefined)[] }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('optional-nested-items')",
+      "  optionalNestedItems(): Promise<{ items?: { ok: boolean }[] }> {",
+      "    throw new Error('not implemented');",
+      "  }",
       "  @Get('nested-empty')",
       "  nestedEmpty(): Promise<{ data: {} }> {",
       "    throw new Error('not implemented');",
@@ -216,6 +233,34 @@ function inspectAnonymousResponse(
       "  generatedUnsafeLater(): Promise<{ data: ResponseGeneratedUnsafe }> {",
       "    throw new Error('not implemented');",
       "  }",
+      ...(includeGenericReferences
+        ? [
+            "  @Get('generic-interface-string')",
+            "  genericInterfaceString(): Promise<{ data: ResponseBox<string> }> {",
+            "    throw new Error('not implemented');",
+            "  }",
+            "  @Get('generic-interface-number')",
+            "  genericInterfaceNumber(): Promise<{ data: ResponseBox<number> }> {",
+            "    throw new Error('not implemented');",
+            "  }",
+            "  @Get('generic-alias-string')",
+            "  genericAliasString(): Promise<{ data: ResponseEnvelope<string> }> {",
+            "    throw new Error('not implemented');",
+            "  }",
+            "  @Get('generic-alias-number')",
+            "  genericAliasNumber(): Promise<{ data: ResponseEnvelope<number> }> {",
+            "    throw new Error('not implemented');",
+            "  }",
+            "  @Get('monomorphic-interface-alias')",
+            "  monomorphicInterfaceAlias(): Promise<{ data: StringBox }> {",
+            "    throw new Error('not implemented');",
+            "  }",
+            "  @Get('monomorphic-type-alias')",
+            "  monomorphicTypeAlias(): Promise<{ data: NumberEnvelope }> {",
+            "    throw new Error('not implemented');",
+            "  }",
+          ]
+        : []),
       ...(includeNestedObjectAlias
         ? [
             "  @Get('nested-object-alias')",
@@ -856,6 +901,51 @@ describe("anonymous response inference", () => {
     }
   });
 
+  it("rejects undefined unions in nested value positions in safe mode", () => {
+    const model = inspectAnonymousResponse("safe");
+    const operation = model.operations.find(
+      (item) => item.id === "AnonymousController.nestedUndefinedArray",
+    );
+    const optionalOperation = model.operations.find(
+      (item) => item.id === "AnonymousController.optionalNestedItems",
+    );
+
+    expect(operation?.responses[0]).toMatchObject({
+      inference: {
+        status: "unresolved",
+        reason: "Anonymous response shape is not closed enough for safe inference",
+      },
+    });
+    expect(operation?.responses[0]?.schema).toBeUndefined();
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
+    expect(optionalOperation?.responses[0]).toMatchObject({
+      inference: { status: "inferred" },
+      schema: {
+        kind: "inline",
+        schema: {
+          type: "object",
+          properties: {
+            items: {
+              type: "array",
+              items: { type: "object" },
+            },
+          },
+        },
+      },
+    });
+    expect(
+      (
+        optionalOperation?.responses[0]?.schema as
+          | { kind: "inline"; schema: { required?: string[] } }
+          | undefined
+      )?.schema.required,
+    ).toBeUndefined();
+  });
+
   it("rejects anonymous array roots with undefined-like branches only in safe mode", () => {
     const safeModel = inspectAnonymousResponse("safe");
     const safeOperation = safeModel.operations.find(
@@ -1145,6 +1235,55 @@ describe("anonymous response inference", () => {
         (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
       ),
     ).toBe(false);
+  });
+
+  it("rejects generic schema references in safe anonymous responses", () => {
+    const model = inspectAnonymousResponse("safe", undefined, false, true);
+
+    for (const operationId of [
+      "AnonymousController.genericInterfaceString",
+      "AnonymousController.genericInterfaceNumber",
+      "AnonymousController.genericAliasString",
+      "AnonymousController.genericAliasNumber",
+    ]) {
+      const operation = model.operations.find((item) => item.id === operationId);
+      expect(operation?.responses[0]?.inference).toMatchObject({
+        status: "unresolved",
+        reason: "Anonymous response shape is not closed enough for safe inference",
+      });
+      expect(operation?.responses[0]?.schema).toBeUndefined();
+      expect(
+        operation?.diagnostics.some(
+          (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+        ),
+      ).toBe(true);
+    }
+
+    expect(model.schemas.ResponseBox).toBeUndefined();
+    expect(model.schemas.ResponseEnvelope).toBeUndefined();
+
+    for (const [operationId, schemaName, primitive] of [
+      ["AnonymousController.monomorphicInterfaceAlias", "StringBox", "string"],
+      ["AnonymousController.monomorphicTypeAlias", "NumberEnvelope", "number"],
+    ] as const) {
+      const operation = model.operations.find((item) => item.id === operationId);
+      expect(operation?.responses[0]).toMatchObject({
+        inference: { status: "inferred" },
+        schema: {
+          kind: "inline",
+          schema: {
+            properties: {
+              data: { $ref: `#/components/schemas/${schemaName}` },
+            },
+          },
+        },
+      });
+      expect(model.schemas[schemaName]).toMatchObject({
+        properties: {
+          value: { type: { kind: "primitive", type: primitive } },
+        },
+      });
+    }
   });
 
   it("rejects an open discovered Zod component but accepts a strict one", () => {

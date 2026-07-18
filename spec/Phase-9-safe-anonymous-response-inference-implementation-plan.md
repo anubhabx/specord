@@ -299,7 +299,11 @@ nestedRecord(): Promise<{ data: Record<string, unknown> }>;
 nestedUnknown(): Promise<{ data: unknown }>;
 unsafeArray(): Promise<{ data: unknown }[]>;
 undefinedArrayRoot(): Promise<{ ok: boolean }[] | undefined>;
+voidArrayRoot(): Promise<{ ok: boolean }[] | void>;
+nestedUndefinedArray(): Promise<{ items: ({ ok: boolean } | undefined)[] }>;
 mixedUnionArray(): Promise<string | { ok: boolean }[]>;
+genericInterfaceString(): Promise<{ data: ResponseBox<string> }>;
+genericInterfaceNumber(): Promise<{ data: ResponseBox<number> }>;
 nestedEmpty(): Promise<{ data: {} }>;
 nestedComplexUnion(): Promise<{ data: { a: string } | { b: number } }>;
 nestedLibrary(): Promise<{ data: Buffer }>;
@@ -318,6 +322,10 @@ non-literal multi-branch unions. Apply the same check to a top-level array whose
 item graph contains an anonymous object. After schema generation, recursively
 verify:
 
+- `undefined` is consumed only once at an optional object-property boundary and
+  remains unsafe in array items or other value positions;
+- a selected interface/type-alias schema symbol with generic type parameters is
+  rejected, while a monomorphically named alias remains eligible;
 - `unknown` refs are incomplete;
 - component refs exist in discovered or generated schema maps;
 - arrays have complete items;
@@ -452,8 +460,9 @@ export default {
 ```
 
 Explain that safe mode is opt-in, static-only, whole-shape, and does not cover
-manual responses, runtime transforms, records, unknown members, streams, or
-framework response classes.
+manual responses, runtime transforms, records, unknown members, value-position
+`undefined`, direct generic schema references, streams, or framework response
+classes.
 
 - [ ] **Step 3: Run documentation and contract checks**
 
@@ -493,12 +502,12 @@ pnpm --filter @specord/cli build
 
 - [ ] **Step 2: Capture default benchmark parity**
 
-Run the existing repository-local private benchmark with its target root set to
-the private production-server checkout.
+Run the existing repository-local production-server benchmark with its target
+root set to the production-server checkout.
 
 Expected: 107 paths, 136 operations, and route parity PASS.
 
-- [ ] **Step 3: Capture safe-mode metrics without modifying the private checkout**
+- [ ] **Step 3: Capture safe-mode metrics without modifying the target checkout**
 
 Run an inline Node ESM script from the worktree that imports
 `loadConfig`, `resolveConfig`, and `inspect` from `packages/core/dist/index.js`,
@@ -510,7 +519,7 @@ loads the target config, merges
 - unresolved response counts grouped by reason and controller; and
 - unmatched path-parameter diagnostics.
 
-The target is a private production-server checkout outside this worktree. Do
+The target is a production-server checkout outside this worktree. Do
 not edit its untracked `specord.config.ts`.
 
 - [ ] **Step 4: Validate safe-mode OpenAPI**
@@ -585,7 +594,7 @@ git diff --stat origin/main...HEAD
 git log --oneline origin/main..HEAD
 ```
 
-Confirm no private target name, temporary file, generated config, snapshot
+Confirm no target-specific name, temporary file, generated config, snapshot
 churn, unrelated refactor, or dependency change entered the branch.
 
 - [ ] **Step 3: Run a read-only correctness review**
