@@ -136,6 +136,10 @@ function inspectAnonymousResponse(
       "  undefinedRoot(): Promise<{ ok: boolean } | undefined> {",
       "    throw new Error('not implemented');",
       "  }",
+      "  @Get('complex-union-root')",
+      "  complexUnionRoot(): Promise<{ left: string } | { right: number }> {",
+      "    throw new Error('not implemented');",
+      "  }",
       "  @Get('indexed')",
       "  indexed(): Promise<{ [key: string]: string; known: string }> {",
       "    throw new Error('not implemented');",
@@ -214,6 +218,10 @@ function inspectAnonymousResponse(
       "  }",
       "  @Get('manual-nullable')",
       "  manualNullable(@Res() response: unknown): Promise<{ ok: boolean } | null> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('manual-complex-union')",
+      "  manualComplexUnion(@Res() response: unknown): Promise<{ left: string } | { right: number }> {",
       "    throw new Error('not implemented');",
       "  }",
       "  @Get('manual-mixed-union-array')",
@@ -747,6 +755,33 @@ describe("anonymous response inference", () => {
     ).toBe(true);
   });
 
+  it("rejects direct anonymous root unions only in safe mode", () => {
+    const safeOperation = inspectAnonymousResponse("safe").operations.find(
+      (item) => item.id === "AnonymousController.complexUnionRoot",
+    );
+
+    expect(safeOperation?.responses[0]?.inference).toMatchObject({
+      status: "unresolved",
+      reason: "Anonymous response shape is not closed enough for safe inference",
+    });
+    expect(
+      safeOperation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
+
+    for (const anonymousObjects of [undefined, "off"] as const) {
+      const legacyOperation = inspectAnonymousResponse(anonymousObjects).operations.find(
+        (item) => item.id === "AnonymousController.complexUnionRoot",
+      );
+      expect(legacyOperation?.responses[0]?.inference.status).toBe("inferred");
+      expect(legacyOperation?.responses[0]?.schema).toMatchObject({
+        kind: "inline",
+        schema: { oneOf: expect.any(Array) },
+      });
+    }
+  });
+
   it("blocks unresolved canonical Nest response decorators", () => {
     const model = inspectUnresolvedCanonicalDecorators();
 
@@ -1043,6 +1078,7 @@ describe("anonymous response inference", () => {
     "AnonymousController.manualAlias",
     "AnonymousController.manualArray",
     "AnonymousController.manualNullable",
+    "AnonymousController.manualComplexUnion",
     "AnonymousController.transformed",
     "AnonymousController.transformedArray",
     "AnonymousController.filtered",

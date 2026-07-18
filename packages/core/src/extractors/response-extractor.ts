@@ -522,9 +522,13 @@ function inferReturnType(
 
   const generatedSchemas: Record<string, SchemaModel> = {};
   const anonymousRoot = anonymousObjectRootBranch(resolved.type);
+  const unsupportedAnonymousRootUnion =
+    options.inferSafeAnonymousObjects === true &&
+    isUnsupportedAnonymousRootUnion(resolved.type);
   const safeAnonymousBoundaryCandidate =
     options.inferSafeAnonymousObjects === true &&
     (anonymousRoot !== undefined ||
+      unsupportedAnonymousRootUnion ||
       isArrayContainingAnonymousObject(resolved.type, checker));
   const safeAnonymousRouteAllowed =
     safeAnonymousBoundaryCandidate &&
@@ -534,6 +538,13 @@ function inferReturnType(
       schemas: {},
       unresolved: true,
       reason: "Anonymous response crosses a manual or transformed response boundary",
+    };
+  }
+  if (unsupportedAnonymousRootUnion) {
+    return {
+      schemas: {},
+      unresolved: true,
+      reason: "Anonymous response shape is not closed enough for safe inference",
     };
   }
 
@@ -641,6 +652,14 @@ function anonymousObjectRootBranch(type: ts.Type): ts.Type | undefined {
   return activeTypes.length === 1 && isAnonymousObjectType(activeTypes[0])
     ? activeTypes[0]
     : undefined;
+}
+
+function isUnsupportedAnonymousRootUnion(type: ts.Type): boolean {
+  return (
+    type.isUnion() &&
+    type.types.some(isAnonymousObjectType) &&
+    anonymousObjectRootBranch(type) === undefined
+  );
 }
 
 function isArrayContainingAnonymousObject(

@@ -105,7 +105,10 @@ eligible only when all of the following are true:
 
 A root union containing `null` and exactly one non-nullish anonymous branch is
 checked as that branch, then emitted with its nullability intact. `undefined`
-and multi-shape root unions do not gain anonymous-root eligibility.
+and multi-shape root unions do not gain anonymous-root eligibility. A
+multi-shape root with any direct anonymous object branch is explicitly rejected
+in safe mode and still passes through the route-boundary gate; default/off keep
+their legacy `oneOf` behavior.
 
 The same route gate applies to an existing top-level array response when its
 item graph contains an anonymous object. This prevents an array wrapper from
