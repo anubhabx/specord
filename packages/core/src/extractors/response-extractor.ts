@@ -521,9 +521,10 @@ function inferReturnType(
   }
 
   const generatedSchemas: Record<string, SchemaModel> = {};
+  const anonymousRoot = anonymousObjectRootBranch(resolved.type);
   const safeAnonymousBoundaryCandidate =
     options.inferSafeAnonymousObjects === true &&
-    (isAnonymousObjectType(resolved.type) ||
+    (anonymousRoot !== undefined ||
       isArrayContainingAnonymousObject(resolved.type, checker));
   const safeAnonymousRouteAllowed =
     safeAnonymousBoundaryCandidate &&
@@ -538,10 +539,11 @@ function inferReturnType(
 
   const safeAnonymousCandidate =
     options.inferSafeAnonymousObjects === true &&
-    isAnonymousObjectType(resolved.type);
+    anonymousRoot !== undefined;
   const safeAnonymousRoot =
     safeAnonymousCandidate &&
-    isSafeAnonymousRootType(resolved.type, checker) &&
+    anonymousRoot !== undefined &&
+    isSafeAnonymousRootType(anonymousRoot, checker) &&
     isSafeAnonymousTypeBranch(
       resolved.type,
       checker,
@@ -562,7 +564,7 @@ function inferReturnType(
       preserveArrayItemMetadata: safeAnonymousRoot,
     },
   );
-  const schemaRef = schema.type;
+  const schemaRef = typeSchemaToSchemaRef(schema, safeAnonymousRoot);
 
   // Check if the return type is reducible
   if (schemaRef.kind === "unknown") {
@@ -621,6 +623,24 @@ function isAnonymousObjectType(type: ts.Type): boolean {
     !!((type as ts.ObjectType).objectFlags & ts.ObjectFlags.Anonymous) &&
     type.aliasSymbol === undefined
   );
+}
+
+function anonymousObjectRootBranch(type: ts.Type): ts.Type | undefined {
+  if (isAnonymousObjectType(type)) return type;
+  if (!type.isUnion()) return undefined;
+  if (
+    !type.types.some((part) => part.flags & ts.TypeFlags.Null) ||
+    type.types.some((part) => part.flags & ts.TypeFlags.Undefined)
+  ) {
+    return undefined;
+  }
+
+  const activeTypes = type.types.filter(
+    (part) => !(part.flags & ts.TypeFlags.Null),
+  );
+  return activeTypes.length === 1 && isAnonymousObjectType(activeTypes[0])
+    ? activeTypes[0]
+    : undefined;
 }
 
 function isArrayContainingAnonymousObject(
@@ -972,17 +992,18 @@ function resolveReturnPayloadType(
   nonCanonicalContainer?: "Promise" | "Observable";
 } | undefined {
   if (route.node.type) {
-    const unwrapped = unwrapResponseContainerTypeNode(
-      route.node.type,
-      checker,
-      requireCanonicalContainers,
-    );
+    if (requireCanonicalContainers) {
+      return unwrapResponseContainerType(
+        checker.getTypeFromTypeNode(route.node.type),
+        checker,
+        true,
+      );
+    }
+
+    const unwrappedTypeNode = unwrapLegacyResponseContainerTypeNode(route.node.type);
     return {
-      type: checker.getTypeFromTypeNode(unwrapped.typeNode),
-      nameHint: schemaNameFromTypeNode(unwrapped.typeNode),
-      ...(unwrapped.nonCanonicalContainer
-        ? { nonCanonicalContainer: unwrapped.nonCanonicalContainer }
-        : {}),
+      type: checker.getTypeFromTypeNode(unwrappedTypeNode),
+      nameHint: schemaNameFromTypeNode(unwrappedTypeNode),
     };
   }
 
@@ -997,37 +1018,20 @@ function resolveReturnPayloadType(
   );
 }
 
-function unwrapResponseContainerTypeNode(
+function unwrapLegacyResponseContainerTypeNode(
   typeNode: ts.TypeNode,
-  checker: ts.TypeChecker,
-  requireCanonicalContainers: boolean,
-): {
-  typeNode: ts.TypeNode;
-  nonCanonicalContainer?: "Promise" | "Observable";
-} {
+): ts.TypeNode {
   if (!ts.isTypeReferenceNode(typeNode) || typeNode.typeArguments?.length !== 1) {
-    return { typeNode };
+    return typeNode;
   }
 
   const name = typeNode.typeName.getText();
   if (name !== "Promise" && name !== "Observable") {
-    return { typeNode };
+    return typeNode;
   }
 
-  if (
-    requireCanonicalContainers &&
-    !isCanonicalResponseContainerType(
-      checker.getTypeFromTypeNode(typeNode),
-      name,
-    )
-  ) {
-    return { typeNode, nonCanonicalContainer: name };
-  }
-
-  return unwrapResponseContainerTypeNode(
+  return unwrapLegacyResponseContainerTypeNode(
     typeNode.typeArguments[0],
-    checker,
-    requireCanonicalContainers,
   );
 }
 
@@ -1035,10 +1039,15 @@ function unwrapResponseContainerType(
   type: ts.Type,
   checker: ts.TypeChecker,
   requireCanonicalContainers: boolean,
+  seen = new Set<ts.Type>(),
 ): {
   type: ts.Type;
   nonCanonicalContainer?: "Promise" | "Observable";
 } {
+  if (seen.has(type)) return { type };
+  const nextSeen = new Set(seen);
+  nextSeen.add(type);
+
   const symbolName = type.getSymbol()?.getName();
   const typeArguments = getTypeArguments(type, checker);
   if (
@@ -1055,6 +1064,7 @@ function unwrapResponseContainerType(
       typeArguments[0],
       checker,
       requireCanonicalContainers,
+      nextSeen,
     );
   }
 
@@ -1065,9 +1075,9 @@ function isCanonicalResponseContainerType(
   type: ts.Type,
   name: "Promise" | "Observable",
 ): boolean {
-  if (name === "Promise") return isTypeScriptLibType(type, name);
+  const symbol = type.getSymbol() ?? type.aliasSymbol;
+  if (name === "Promise") return isTypeScriptLibSymbol(symbol, name);
 
-  const symbol = schemaSymbolForType(type);
   return (
     symbol?.getName() === name &&
     symbol.declarations !== undefined &&
@@ -1079,7 +1089,13 @@ function isCanonicalResponseContainerType(
 }
 
 function isTypeScriptLibType(type: ts.Type, name: string): boolean {
-  const symbol = schemaSymbolForType(type);
+  return isTypeScriptLibSymbol(schemaSymbolForType(type), name);
+}
+
+function isTypeScriptLibSymbol(
+  symbol: ts.Symbol | undefined,
+  name: string,
+): boolean {
   return (
     symbol?.getName() === name &&
     symbol.declarations?.some((declaration) => {

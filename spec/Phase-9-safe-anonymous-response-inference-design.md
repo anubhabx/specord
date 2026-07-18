@@ -86,7 +86,11 @@ applies config overrides after extraction.
 
 ## Safe-mode Eligibility
 
-After unwrapping `Promise<T>` or `Observable<T>`, the root response type is
+Safe mode unwraps response containers from their compiler-resolved type rather
+than their source spelling. This admits canonical imported aliases,
+namespace-qualified references, and instantiated type aliases for TypeScript
+`Promise<T>` and installed `rxjs` `Observable<T>`, while rejecting project-local
+lookalikes. After unwrapping those containers, the root response type is
 eligible only when all of the following are true:
 
 1. It is a TypeScript object with `ObjectFlags.Anonymous`.
@@ -98,6 +102,10 @@ eligible only when all of the following are true:
 7. The route method and controller have no `@UseInterceptors`,
    `@SerializeOptions`, `@UseFilters`, `@Redirect`, or `@Render`
    response-boundary marker.
+
+A root union containing `null` and exactly one non-nullish anonymous branch is
+checked as that branch, then emitted with its nullability intact. `undefined`
+and multi-shape root unions do not gain anonymous-root eligibility.
 
 The same route gate applies to an existing top-level array response when its
 item graph contains an anonymous object. This prevents an array wrapper from

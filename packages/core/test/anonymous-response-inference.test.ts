@@ -128,6 +128,14 @@ function inspectAnonymousResponse(
       "  }> {",
       "    throw new Error('not implemented');",
       "  }",
+      "  @Get('nullable-root')",
+      "  nullableRoot(): Promise<{ ok: boolean } | null> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('undefined-root')",
+      "  undefinedRoot(): Promise<{ ok: boolean } | undefined> {",
+      "    throw new Error('not implemented');",
+      "  }",
       "  @Get('indexed')",
       "  indexed(): Promise<{ [key: string]: string; known: string }> {",
       "    throw new Error('not implemented');",
@@ -202,6 +210,10 @@ function inspectAnonymousResponse(
       "  }",
       "  @Get('manual-array')",
       "  manualArray(@Res() response: unknown): Promise<{ ok: boolean }[]> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('manual-nullable')",
+      "  manualNullable(@Res() response: unknown): Promise<{ ok: boolean } | null> {",
       "    throw new Error('not implemented');",
       "  }",
       "  @Get('manual-mixed-union-array')",
@@ -488,7 +500,8 @@ function inspectShadowedResponseTypes(
   fs.writeFileSync(
     path.join(srcRoot, "shadowed-types.controller.ts"),
     [
-      "import type { Date, Promise, Observable } from './shadowed-types';",
+      "import type { Date, Promise, Observable, Promise as Async, Observable as Stream } from './shadowed-types';",
+      "import type * as LocalTypes from './shadowed-types';",
       "declare function Controller(path?: string): ClassDecorator;",
       "declare function Get(path?: string): MethodDecorator;",
       "@Controller('shadowed-types')",
@@ -503,6 +516,26 @@ function inspectShadowedResponseTypes(
       "  }",
       "  @Get('observable-annotated')",
       "  observableAnnotated(): Observable<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('promise-alias')",
+      "  promiseAlias(): Async<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('observable-alias')",
+      "  observableAlias(): Stream<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('promise-qualified')",
+      "  promiseQualified(): LocalTypes.Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('observable-qualified')",
+      "  observableQualified(): LocalTypes.Observable<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('nested-noncanonical')",
+      "  nestedNoncanonical(): globalThis.Promise<LocalTypes.Observable<{ ok: boolean }>> {",
       "    throw new Error('not implemented');",
       "  }",
       "  @Get('promise-inferred')",
@@ -520,13 +553,49 @@ function inspectShadowedResponseTypes(
   fs.writeFileSync(
     path.join(srcRoot, "rxjs.controller.ts"),
     [
-      "import type { Observable } from 'rxjs';",
+      "import type { Observable, Observable as Stream } from 'rxjs';",
+      "import type * as RxTypes from 'rxjs';",
+      "type Async<T> = Promise<T>;",
+      "type AsyncList<T> = Promise<T[]>;",
+      "type AsyncStream<T> = Async<RxTypes.Observable<T>>;",
       "declare function Controller(path?: string): ClassDecorator;",
       "declare function Get(path?: string): MethodDecorator;",
       "@Controller('rxjs')",
       "class CanonicalObservableController {",
       "  @Get()",
       "  get(): Observable<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('observable-alias')",
+      "  observableAlias(): Stream<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('observable-qualified')",
+      "  observableQualified(): RxTypes.Observable<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('observable-nullable')",
+      "  observableNullable(): RxTypes.Observable<{ ok: boolean } | null> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('promise-alias')",
+      "  promiseAlias(): Async<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('promise-qualified')",
+      "  promiseQualified(): globalThis.Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('promise-array-alias')",
+      "  promiseArrayAlias(): AsyncList<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('nested-container-alias')",
+      "  nestedContainerAlias(): AsyncStream<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('promise-like')",
+      "  promiseLike(): PromiseLike<{ ok: boolean }> {",
       "    throw new Error('not implemented');",
       "  }",
       "}",
@@ -624,6 +693,38 @@ describe("anonymous response inference", () => {
     ).toBe(false);
   });
 
+  it("infers a nullable closed anonymous response root in safe mode", () => {
+    const model = inspectAnonymousResponse("safe");
+    const operation = model.operations.find(
+      (item) => item.id === "AnonymousController.nullableRoot",
+    );
+
+    expect(operation?.responses[0]).toMatchObject({
+      status: 200,
+      inference: { status: "inferred" },
+      schema: {
+        kind: "inline",
+        schema: {
+          type: ["object", "null"],
+          required: ["ok"],
+          properties: { ok: { type: "boolean" } },
+        },
+      },
+    });
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(false);
+
+    for (const anonymousObjects of [undefined, "off"] as const) {
+      const disabledOperation = inspectAnonymousResponse(anonymousObjects).operations.find(
+        (item) => item.id === "AnonymousController.nullableRoot",
+      );
+      expect(disabledOperation?.responses[0]?.inference.status).toBe("unresolved");
+    }
+  });
+
   it("keeps anonymous responses unresolved by default and when explicitly off", () => {
     const defaultOperation = inspectAnonymousResponse().operations.find(
       (item) => item.id === "AnonymousController.get",
@@ -673,6 +774,11 @@ describe("anonymous response inference", () => {
       "ShadowedTypeController.shadowedDate",
       "ShadowedTypeController.promiseAnnotated",
       "ShadowedTypeController.observableAnnotated",
+      "ShadowedTypeController.promiseAlias",
+      "ShadowedTypeController.observableAlias",
+      "ShadowedTypeController.promiseQualified",
+      "ShadowedTypeController.observableQualified",
+      "ShadowedTypeController.nestedNoncanonical",
       "ShadowedTypeController.promiseInferred",
       "ShadowedTypeController.observableInferred",
     ]) {
@@ -683,12 +789,58 @@ describe("anonymous response inference", () => {
           (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
         ),
       ).toBe(true);
+      if (operationId !== "ShadowedTypeController.shadowedDate") {
+        expect(
+          operation?.diagnostics.some((diagnostic) =>
+            diagnostic.message.includes("non-canonical"),
+          ),
+        ).toBe(true);
+      }
     }
 
-    const canonicalObservable = model.operations.find(
-      (item) => item.id === "CanonicalObservableController.get",
+    for (const operationId of [
+      "CanonicalObservableController.get",
+      "CanonicalObservableController.observableAlias",
+      "CanonicalObservableController.observableQualified",
+      "CanonicalObservableController.observableNullable",
+      "CanonicalObservableController.promiseAlias",
+      "CanonicalObservableController.promiseQualified",
+      "CanonicalObservableController.promiseArrayAlias",
+      "CanonicalObservableController.nestedContainerAlias",
+    ]) {
+      const operation = model.operations.find((item) => item.id === operationId);
+      expect(operation?.responses[0]?.inference.status).toBe("inferred");
+      expect(
+        operation?.diagnostics.some(
+          (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+        ),
+      ).toBe(false);
+    }
+
+    const arrayAlias = model.operations.find(
+      (item) => item.id === "CanonicalObservableController.promiseArrayAlias",
     );
-    expect(canonicalObservable?.responses[0]?.inference.status).toBe("inferred");
+    expect(arrayAlias?.responses[0]?.schema).toMatchObject({
+      kind: "array",
+      items: {
+        kind: "inline",
+        schema: {
+          type: "object",
+          required: ["ok"],
+          properties: { ok: { type: "boolean" } },
+        },
+      },
+    });
+
+    const promiseLike = model.operations.find(
+      (item) => item.id === "CanonicalObservableController.promiseLike",
+    );
+    expect(promiseLike?.responses[0]?.inference.status).toBe("unresolved");
+    expect(
+      promiseLike?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
   });
 
   it("keeps shadowed response containers unresolved by default", () => {
@@ -738,6 +890,7 @@ describe("anonymous response inference", () => {
     "AnonymousController.callable",
     "AnonymousController.withMethod",
     "AnonymousController.openRecord",
+    "AnonymousController.undefinedRoot",
   ])("keeps unsafe anonymous root %s unresolved in safe mode", (operationId) => {
     const model = inspectAnonymousResponse("safe");
     const operation = model.operations.find((item) => item.id === operationId);
@@ -889,6 +1042,7 @@ describe("anonymous response inference", () => {
     "AnonymousController.manual",
     "AnonymousController.manualAlias",
     "AnonymousController.manualArray",
+    "AnonymousController.manualNullable",
     "AnonymousController.transformed",
     "AnonymousController.transformedArray",
     "AnonymousController.filtered",
