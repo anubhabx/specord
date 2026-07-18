@@ -1010,7 +1010,7 @@ function isCanonicalResponseContainerType(
     symbol?.getName() === name &&
     symbol.declarations !== undefined &&
     symbol.declarations.length > 0 &&
-    symbol.declarations.every((declaration) =>
+    symbol.declarations.some((declaration) =>
       declarationComesFromInstalledPackage(declaration, "rxjs"),
     )
   );

@@ -391,7 +391,7 @@ function inspectUnresolvedCanonicalDecorators() {
 
 function inspectShadowedResponseTypes(
   anonymousObjects?: "off" | "safe",
-  rxjsSource: "installed" | "ambient" = "installed",
+  rxjsSource: "installed" | "augmented" | "ambient" = "installed",
 ) {
   const projectRoot = createTempProject(tempRoots, {
     prefix: "specord-shadowed-response-types-",
@@ -407,7 +407,7 @@ function inspectShadowedResponseTypes(
     ].join("\n"),
   );
 
-  if (rxjsSource === "installed") {
+  if (rxjsSource !== "ambient") {
     const rxjsRoot = path.join(projectRoot, "node_modules", "rxjs");
     fs.mkdirSync(rxjsRoot, { recursive: true });
     fs.writeFileSync(
@@ -418,6 +418,17 @@ function inspectShadowedResponseTypes(
       path.join(rxjsRoot, "index.d.ts"),
       "export interface Observable<T> { subscribe(): T; }",
     );
+    if (rxjsSource === "augmented") {
+      fs.writeFileSync(
+        path.join(srcRoot, "rxjs-augmentation.d.ts"),
+        [
+          "import 'rxjs';",
+          "declare module 'rxjs' {",
+          "  interface Observable<T> { custom(): void; }",
+          "}",
+        ].join("\n"),
+      );
+    }
   } else {
     fs.writeFileSync(
       path.join(srcRoot, "rxjs.d.ts"),
@@ -618,6 +629,20 @@ describe("anonymous response inference", () => {
         (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
       ),
     ).toBe(true);
+  });
+
+  it("accepts an installed rxjs Observable with local augmentation", () => {
+    const model = inspectShadowedResponseTypes("safe", "augmented");
+    const operation = model.operations.find(
+      (item) => item.id === "CanonicalObservableController.get",
+    );
+
+    expect(operation?.responses[0]?.inference.status).toBe("inferred");
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(false);
   });
 
   it.each([
