@@ -2,7 +2,7 @@
 
 **Phase:** 9 - Safe anonymous response inference
 **Date:** 2026-07-18
-**Status:** Healthy for the implemented acceptance scope and final local verification. Default V1 output is unchanged; opt-in safe mode reduced unresolved production API surface responses from 78 to 37 while preserving route parity and valid OpenAPI. Final safety review fixes cover canonical Nest decorator provenance through aliases and local barrels, explicit-export shadowing, and recursive discovered/generated component validation. Local workspace build, test, and branch-audit gates are complete; push, pull request, and hosted checks remain pending.
+**Status:** Healthy for the implemented acceptance scope and final local verification. Default V1 output is unchanged; opt-in safe mode reduced unresolved production API surface responses from 78 to 37 while preserving route parity and valid OpenAPI. Final safety review fixes cover canonical Nest decorator provenance through aliases and local barrels, built-in/container type provenance, explicit-export shadowing, and recursive discovered/generated component validation. Pull request #4 is open; its final safety commits, hosted checks, and review-thread audit remain pending.
 
 ---
 
@@ -18,7 +18,7 @@ Measured against the production server checkout, safe mode preserved 107 paths a
 | --- | --- |
 | Configuration | Optional `inference.responses.anonymousObjects` policy with runtime validation for `"off"` and `"safe"` |
 | Extraction | Closed anonymous response inference behind the opt-in policy |
-| Safety boundary | Whole-shape rejection for index signatures, call/construct signatures, methods, classes, records, unknown members, complex unions, dangling or incomplete component references, manual responses, and visible response transforms from canonical `@nestjs/common` decorators (including aliases, namespace imports, and re-exports) |
+| Safety boundary | Whole-shape rejection for index signatures, call/construct signatures, methods, classes, records, unknown members, complex unions, dangling or incomplete component references, non-canonical `Date`/`Promise`/`Observable` identities, manual responses, and visible response transforms from canonical `@nestjs/common` decorators |
 | Precedence | Swagger success responses and operation response overrides remain authoritative |
 | Tests and docs | Focused response/config coverage, cyclic-config and controller-transform hardening, normative contract, and configuration guidance |
 
@@ -27,9 +27,9 @@ Measured against the production server checkout, safe mode preserved 107 paths a
 | Criterion | Status | Evidence |
 | --- | --- | --- |
 | Package builds | Pass | `@specord/types`, `@specord/core`, `@specord/openapi`, and `@specord/cli` builds passed with pnpm 10.33.4 |
-| Core regression suite | Pass | 15 files, 114 tests passed after config, transform-boundary, canonical decorator-provenance, barrel-shadowing, and component-completeness hardening |
-| Fresh uncached workspace build | Pass | `pnpm.cmd exec turbo run build --force`: 6/6 tasks, 0 cached, six packages, 5.394s |
-| Fresh uncached workspace test | Pass | `pnpm.cmd exec turbo run test --force`: 12/12 tasks, 0 cached, 22 files and 142 tests across six packages, 36.57s |
+| Core regression suite | Pass | 15 files, 118 tests passed after config, transform-boundary, decorator/type-provenance, barrel-shadowing, and component-completeness hardening |
+| Fresh uncached workspace build | Pass | `pnpm.cmd exec turbo run build --force`: 6/6 tasks, 0 cached, six packages, 6.225s |
+| Fresh uncached workspace test | Pass | `pnpm.cmd exec turbo run test --force`: 12/12 tasks, 0 cached, 22 files and 146 tests across six packages, 41.728s |
 | Workspace lint coverage | Not configured | `pnpm.cmd lint` exited 0, but Turbo executed 0 tasks and warned `No tasks were executed`; this is not lint coverage |
 | Canonical snapshot and acceptance tests | Pass | 2 files, 16 tests passed |
 | Canonical inspect/generate | Pass | Both commands exited 0; canonical model remains 7 controllers, 22 paths, 27 operations, and 42 schemas |
@@ -74,12 +74,12 @@ The system cannot infer runtime serialization/interceptor/filter effects, manual
 
 | Metric | Value |
 | --- | ---: |
-| Final branch commits (including report sync) | 23 |
+| Final branch commits (including report sync) | 26 |
 | Final tracked files changed | 11 |
-| Final insertions | 2,477 |
-| Final deletions | 5 |
-| Current core suite | 15 files, 114 tests |
-| Fresh workspace suite | 22 files, 142 tests across six packages |
+| Final insertions | 2,777 |
+| Final deletions | 18 |
+| Current core suite | 15 files, 118 tests |
+| Fresh workspace suite | 22 files, 146 tests across six packages |
 | New runtime dependencies | 0 |
 | Package-manifest/lockfile dependency delta | 0 |
 
@@ -91,7 +91,7 @@ The system cannot infer runtime serialization/interceptor/filter effects, manual
 | Require complete whole shapes | Documentation must not imply certainty when any nested member is unsupported |
 | Preserve Swagger and config precedence | Explicit API documentation remains more authoritative than structural inference |
 | Reject visible response-transform boundaries | Static return types cannot prove runtime serialization output |
-| Resolve only canonical response-boundary decorators | `@nestjs/common` direct imports, aliases, namespace imports, subpaths, and local re-export chains are blocked; known local or imported same-named decorators, including explicit exports shadowing Nest export-stars, remain unrelated |
+| Resolve only canonical response-boundary identities | Canonical Nest decorators are followed through imports and barrels; type-name-only `Date`, `Promise`, or `Observable` matches are not trusted, while installed RxJS module augmentation remains supported |
 | Validate referenced component contents recursively | A discovered or earlier-generated name is not proof that its schema is closed and complete |
 | Keep open records unresolved | Arbitrary keys and unknown values cannot be safely modeled as a closed object |
 | Retain route-parity gate separately | Response-fidelity gains must not obscure routing regressions |
@@ -105,7 +105,7 @@ The work follows the design/RFC boundary in [RFC issue #3](https://github.com/an
 | Residual response analysis | Cluster the 23 rejected anonymous shapes by specific incomplete member pattern |
 | Named response families | Add only source-justified support for repeated named shapes that remain unreducible |
 | Path parameters | Investigate the 16 unchanged unmatched path tokens independently |
-| Delivery | Push the verified branch, create the pull request, and audit hosted checks/review state; these steps are pending and have not been claimed locally |
+| Delivery | Push the final safety commits and report sync to pull request #4, then re-audit hosted checks and review-thread state; these steps remain pending |
 
 ## Risk Assessment
 
