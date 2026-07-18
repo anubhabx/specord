@@ -204,6 +204,10 @@ function inspectAnonymousResponse(
       "  manualArray(@Res() response: unknown): Promise<{ ok: boolean }[]> {",
       "    throw new Error('not implemented');",
       "  }",
+      "  @Get('manual-mixed-union-array')",
+      "  manualMixedUnionArray(@Res() response: unknown): Promise<string | { ok: boolean }[]> {",
+      "    throw new Error('not implemented');",
+      "  }",
       "  @Get('transformed')",
       "  @UseInterceptors(ResponseInterceptor)",
       "  transformed(): Promise<{ ok: boolean }> {",
@@ -912,6 +916,19 @@ describe("anonymous response inference", () => {
     expect(operation?.responses[0]?.inference.reason).toBe(
       "Anonymous response crosses a manual or transformed response boundary",
     );
+  });
+
+  it("does not broaden the array boundary gate to mixed root unions", () => {
+    const operation = inspectAnonymousResponse("safe").operations.find(
+      (item) => item.id === "AnonymousController.manualMixedUnionArray",
+    );
+
+    expect(operation?.responses[0]?.inference.status).toBe("inferred");
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(false);
   });
 
   it.each([

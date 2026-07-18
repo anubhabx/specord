@@ -635,7 +635,15 @@ function isArrayContainingAnonymousObject(
 
   if (insideArray && isAnonymousObjectType(type)) return true;
   if (type.isUnion()) {
-    return type.types.some((part) =>
+    const branches = insideArray
+      ? type.types
+      : type.types.filter(
+          (part) =>
+            !(part.flags & ts.TypeFlags.Null) &&
+            !(part.flags & ts.TypeFlags.Undefined),
+        );
+    if (!insideArray && branches.length !== 1) return false;
+    return branches.some((part) =>
       isArrayContainingAnonymousObject(part, checker, insideArray, nextSeen),
     );
   }
