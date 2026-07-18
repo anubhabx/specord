@@ -152,6 +152,10 @@ function inspectAnonymousResponse(
       "  undefinedArrayRoot(): Promise<{ ok: boolean }[] | undefined> {",
       "    throw new Error('not implemented');",
       "  }",
+      "  @Get('void-array-root')",
+      "  voidArrayRoot(): Promise<{ ok: boolean }[] | void> {",
+      "    throw new Error('not implemented');",
+      "  }",
       "  @Get('indexed')",
       "  indexed(): Promise<{ [key: string]: string; known: string }> {",
       "    throw new Error('not implemented');",
@@ -242,6 +246,10 @@ function inspectAnonymousResponse(
       "  }",
       "  @Get('manual-mixed-union-array')",
       "  manualMixedUnionArray(@Res() response: unknown): Promise<string | { ok: boolean }[]> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('manual-void-array-root')",
+      "  manualVoidArrayRoot(@Res() response: unknown): Promise<{ ok: boolean }[] | void> {",
       "    throw new Error('not implemented');",
       "  }",
       "  @Get('transformed')",
@@ -848,23 +856,63 @@ describe("anonymous response inference", () => {
     }
   });
 
-  it("rejects an anonymous array root unioned with undefined only in safe mode", () => {
-    const safeOperation = inspectAnonymousResponse("safe").operations.find(
+  it("rejects anonymous array roots with undefined-like branches only in safe mode", () => {
+    const safeModel = inspectAnonymousResponse("safe");
+    const safeOperation = safeModel.operations.find(
       (item) => item.id === "AnonymousController.undefinedArrayRoot",
+    );
+    const voidOperation = safeModel.operations.find(
+      (item) => item.id === "AnonymousController.voidArrayRoot",
+    );
+    const manualVoidOperation = safeModel.operations.find(
+      (item) => item.id === "AnonymousController.manualVoidArrayRoot",
     );
 
     expect(safeOperation?.responses[0]?.inference).toMatchObject({
       status: "unresolved",
       reason: "Anonymous response shape is not closed enough for safe inference",
     });
+    expect(voidOperation?.responses[0]?.inference).toMatchObject({
+      status: "unresolved",
+      reason: "Anonymous response shape is not closed enough for safe inference",
+    });
+    expect(voidOperation?.responses[0]?.schema).toBeUndefined();
+    expect(
+      voidOperation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
+    expect(manualVoidOperation?.responses[0]?.inference).toMatchObject({
+      status: "unresolved",
+      reason: "Anonymous response crosses a manual or transformed response boundary",
+    });
+    expect(manualVoidOperation?.responses[0]?.schema).toBeUndefined();
 
     for (const anonymousObjects of [undefined, "off"] as const) {
-      const legacyOperation = inspectAnonymousResponse(
-        anonymousObjects,
-      ).operations.find(
-        (item) => item.id === "AnonymousController.undefinedArrayRoot",
-      );
-      expect(legacyOperation?.responses[0]?.inference.status).toBe("inferred");
+      const legacyModel = inspectAnonymousResponse(anonymousObjects);
+      for (const operationId of [
+        "AnonymousController.undefinedArrayRoot",
+        "AnonymousController.voidArrayRoot",
+        "AnonymousController.manualVoidArrayRoot",
+      ]) {
+        expect(
+          legacyModel.operations.find((item) => item.id === operationId)?.responses[0]
+            ?.inference.status,
+        ).toBe("inferred");
+      }
+      expect(
+        legacyModel.operations.find(
+          (item) => item.id === "AnonymousController.voidArrayRoot",
+        )?.responses[0]?.schema,
+      ).toMatchObject({
+        kind: "inline",
+        schema: {
+          oneOf: expect.arrayContaining([
+            expect.objectContaining({ type: "array" }),
+            { type: "null" },
+          ]),
+        },
+      });
     }
   });
 
