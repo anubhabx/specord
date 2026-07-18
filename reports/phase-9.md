@@ -2,7 +2,7 @@
 
 **Phase:** 9 - Safe anonymous response inference
 **Date:** 2026-07-18
-**Status:** Healthy for the implemented acceptance scope and final local verification. Default V1 output is unchanged; opt-in safe mode reduced unresolved production API surface responses from 78 to 37 while preserving route parity and valid OpenAPI. Final safety review fixes cover canonical Nest decorator provenance through aliases and local barrels, built-in/container type provenance, explicit-export shadowing, recursive discovered/generated component validation, nullable-schema completeness, and nested array item metadata. Pull request #4 remains open and unmerged; hosted checks and resolved review threads are mandatory delivery gates.
+**Status:** Healthy for the implemented acceptance scope and final local verification. Default V1 output is unchanged; opt-in safe mode reduced unresolved production API surface responses from 78 to 37 while preserving route parity and valid OpenAPI. Final safety review fixes cover canonical Nest decorator provenance through aliases and local barrels, built-in/container type provenance, explicit-export shadowing, recursive discovered/generated component validation, nullable-schema completeness, nested array item metadata, anonymous-array route gating, and redirect/render boundaries. Pull request #4 remains open and unmerged; hosted checks and resolved review threads are mandatory delivery gates.
 
 ---
 
@@ -18,7 +18,7 @@ Measured against the production server checkout, safe mode preserved 107 paths a
 | --- | --- |
 | Configuration | Optional `inference.responses.anonymousObjects` policy with runtime validation for `"off"` and `"safe"` |
 | Extraction | Closed anonymous response inference behind the opt-in policy |
-| Safety boundary | Whole-shape rejection for index signatures, call/construct signatures, methods, classes, records, unknown members, complex unions, dangling or incomplete component references, non-canonical `Date`/`Promise`/`Observable` identities, manual responses, and visible response transforms from canonical `@nestjs/common` decorators; accepted nested arrays preserve enum, format, and nullability metadata |
+| Safety boundary | Whole-shape rejection for index signatures, call/construct signatures, methods, classes, records, unknown members, complex unions, dangling or incomplete component references, non-canonical `Date`/`Promise`/`Observable` identities, manual responses, visible response transforms, redirects, and rendered views from canonical `@nestjs/common` decorators; the route gate also covers array-wrapped anonymous objects, and accepted nested arrays preserve enum, format, and nullability metadata |
 | Precedence | Swagger success responses and operation response overrides remain authoritative |
 | Tests and docs | Focused response/config coverage, cyclic-config and controller-transform hardening, normative contract, and configuration guidance |
 
@@ -27,9 +27,9 @@ Measured against the production server checkout, safe mode preserved 107 paths a
 | Criterion | Status | Evidence |
 | --- | --- | --- |
 | Package builds | Pass | `@specord/types`, `@specord/core`, `@specord/openapi`, and `@specord/cli` builds passed with pnpm 10.33.4 |
-| Core regression suite | Pass | 15 files, 119 tests passed after config, transform-boundary, decorator/type-provenance, barrel-shadowing, nullable-schema, array-metadata, and component-completeness hardening |
-| Fresh uncached workspace build | Pass | `pnpm.cmd exec turbo run build --force`: 6/6 tasks, 0 cached, six packages, 5.870s |
-| Fresh uncached workspace test | Pass | `pnpm.cmd exec turbo run test --force`: 12/12 tasks, 0 cached, 22 files and 147 tests across six packages, 57.594s |
+| Core regression suite | Pass | 15 files, 123 tests passed after config, transform/non-JSON-boundary, anonymous-array, decorator/type-provenance, barrel-shadowing, nullable-schema, array-metadata, and component-completeness hardening |
+| Fresh uncached workspace build | Pass | `pnpm.cmd exec turbo run build --force`: 6/6 tasks, 0 cached, six packages, 6.675s |
+| Fresh uncached workspace test | Pass | `pnpm.cmd exec turbo run test --force`: 12/12 tasks, 0 cached, 22 files and 151 tests across six packages, 45.996s |
 | Workspace lint coverage | Not configured | `pnpm.cmd lint` exited 0, but Turbo executed 0 tasks and warned `No tasks were executed`; this is not lint coverage |
 | Canonical snapshot and acceptance tests | Pass | 2 files, 16 tests passed |
 | Canonical inspect/generate | Pass | Both commands exited 0; canonical model remains 7 controllers, 22 paths, 27 operations, and 42 schemas |
@@ -74,12 +74,12 @@ The system cannot infer runtime serialization/interceptor/filter effects, manual
 
 | Metric | Value |
 | --- | ---: |
-| Final branch commits (including report sync) | 29 |
+| Final branch commits (including report sync) | 31 |
 | Final tracked files changed | 11 |
-| Final insertions | 2,915 |
+| Final insertions | 2,992 |
 | Final deletions | 39 |
-| Current core suite | 15 files, 119 tests |
-| Fresh workspace suite | 22 files, 147 tests across six packages |
+| Current core suite | 15 files, 123 tests |
+| Fresh workspace suite | 22 files, 151 tests across six packages |
 | New runtime dependencies | 0 |
 | Package-manifest/lockfile dependency delta | 0 |
 
@@ -91,6 +91,7 @@ The system cannot infer runtime serialization/interceptor/filter effects, manual
 | Require complete whole shapes | Documentation must not imply certainty when any nested member is unsupported |
 | Preserve Swagger and config precedence | Explicit API documentation remains more authoritative than structural inference |
 | Reject visible response-transform boundaries | Static return types cannot prove runtime serialization output |
+| Treat redirects, rendered views, and anonymous arrays as route-boundary cases | Canonical non-JSON decorators and array wrappers must not bypass the same safe-mode route gate |
 | Resolve only canonical response-boundary identities | Canonical Nest decorators are followed through imports and barrels; type-name-only `Date`, `Promise`, or `Observable` matches are not trusted, while installed RxJS module augmentation remains supported |
 | Validate referenced component contents recursively | A discovered or earlier-generated name is not proof that its schema is closed and complete |
 | Preserve nested array metadata only in safe mode | Accepted safe responses retain enum, format, and nullability on array items without changing default/off output |
@@ -112,7 +113,7 @@ The work follows the design/RFC boundary in [RFC issue #3](https://github.com/an
 
 | Risk | Severity | Mitigation |
 | --- | --- | --- |
-| Static source type differs from runtime serialization | Medium | Keep the feature opt-in, reject visible transform/manual boundaries, and retain explicit overrides |
+| Static source type differs from runtime serialization | Medium | Keep the feature opt-in, reject visible transform/manual/non-JSON boundaries including array wrappers, and retain explicit overrides |
 | A partial or metadata-losing schema is accepted | Medium | Enforce recursive type and emitted-schema completeness; focused regression tests cover unsafe roots, nested shapes, nullable schemas, and array item metadata |
 | Future type-family expansion changes default output | Medium | Default remains `"off"`; canonical snapshot/hash checks are mandatory |
 | Residual path diagnostics are mistaken for response work | Low | Keep their count separate and schedule independent investigation |
