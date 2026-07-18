@@ -177,7 +177,7 @@ export default {
 
 Safe mode is static-only and whole-shape: Specord infers an anonymous response only when the compiler-visible root, route, and every nested branch are closed and reducible. Supported branches include primitives and literals, `Date`, arrays, nested closed objects, valid discovered or response-generated schema references (including interfaces and object type aliases), and nullable forms.
 
-It does not infer records or index signatures, `any`/`unknown`/`never`, empty or callable shapes, complex unions or conditional types, dangling references, streams, framework response classes, or manual `@Res()` / `@Response()` handling. It also does not model global or runtime serialization, interceptor, filter, or other transform effects; use an operation response override whenever the runtime response differs from the static shape.
+It does not infer records or index signatures, `any`/`unknown`/`never`, empty or callable shapes, complex unions or conditional types, dangling references, streams, framework response classes, manual `@Res()` / `@Response()` handling, redirects, or rendered views. The same route boundary applies to top-level arrays containing anonymous object items. It also does not model global or runtime serialization, interceptor, filter, or other transform effects; use an operation response override whenever the runtime response differs from the static shape.
 
 Explicit Swagger success responses and `operations.<id>.responses` overrides take precedence. An override marks the affected response as `overridden` and removes only its direct unresolved-response diagnostic.
 

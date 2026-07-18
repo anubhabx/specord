@@ -96,7 +96,13 @@ eligible only when all of the following are true:
 5. It exposes at least one non-method property.
 6. The route has no `@Res()` or `@Response()` parameter.
 7. The route method and controller have no `@UseInterceptors`,
-   `@SerializeOptions`, or `@UseFilters` response-transform marker.
+   `@SerializeOptions`, `@UseFilters`, `@Redirect`, or `@Render`
+   response-boundary marker.
+
+The same route gate applies to an existing top-level array response when its
+item graph contains an anonymous object. This prevents an array wrapper from
+bypassing a manual or transformed boundary without expanding safe-mode root
+eligibility beyond the anonymous object described above.
 
 Safe mode reasons from the TypeScript compiler's final structural type. Object
 spreads are not evaluated at runtime; they are usable only when the compiler has
@@ -180,7 +186,8 @@ continue to remove only the directly resolved response diagnostic.
 - Reject root and nested `Record<string, unknown>` shapes.
 - Reject `any`, `unknown`, empty objects, callables, index signatures, complex
   unions, and dangling library references.
-- Reject `@Res()` / `@Response()` and response-transform-decorated routes.
+- Reject `@Res()` / `@Response()`, response-transform-decorated, redirect, and
+  rendered-view routes, including anonymous object items behind array wrappers.
 - Preserve the canonical dynamic file export as unresolved.
 - Preserve explicit Swagger and config response precedence.
 

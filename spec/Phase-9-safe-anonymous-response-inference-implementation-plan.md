@@ -382,8 +382,14 @@ const RESPONSE_TRANSFORM_DECORATORS = [
   "UseInterceptors",
   "SerializeOptions",
   "UseFilters",
+  "Redirect",
+  "Render",
 ] as const;
 ```
+
+Apply this route gate before retaining an existing array response when its item
+graph contains an anonymous object, so an array wrapper cannot bypass the same
+manual or transformed boundary.
 
 - [ ] **Step 4: Add safe-mode precedence coverage**
 

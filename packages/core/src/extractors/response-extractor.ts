@@ -40,6 +40,8 @@ const RESPONSE_TRANSFORM_DECORATORS = [
   "UseInterceptors",
   "SerializeOptions",
   "UseFilters",
+  "Redirect",
+  "Render",
 ] as const;
 const NEST_COMMON_MODULE = "@nestjs/common";
 
@@ -519,13 +521,26 @@ function inferReturnType(
   }
 
   const generatedSchemas: Record<string, SchemaModel> = {};
+  const safeAnonymousBoundaryCandidate =
+    options.inferSafeAnonymousObjects === true &&
+    (isAnonymousObjectType(resolved.type) ||
+      isArrayContainingAnonymousObject(resolved.type, checker));
+  const safeAnonymousRouteAllowed =
+    safeAnonymousBoundaryCandidate &&
+    routeAllowsSafeAnonymousInference(route, checker);
+  if (safeAnonymousBoundaryCandidate && !safeAnonymousRouteAllowed) {
+    return {
+      schemas: {},
+      unresolved: true,
+      reason: "Anonymous response crosses a manual or transformed response boundary",
+    };
+  }
+
   const safeAnonymousCandidate =
     options.inferSafeAnonymousObjects === true &&
     isAnonymousObjectType(resolved.type);
-  const safeAnonymousRouteAllowed =
-    safeAnonymousCandidate && routeAllowsSafeAnonymousInference(route, checker);
   const safeAnonymousRoot =
-    safeAnonymousRouteAllowed &&
+    safeAnonymousCandidate &&
     isSafeAnonymousRootType(resolved.type, checker) &&
     isSafeAnonymousTypeBranch(
       resolved.type,
@@ -557,9 +572,7 @@ function inferReturnType(
       schemas: safeAnonymousCandidate ? {} : generatedSchemas,
       unresolved: true,
       reason: safeAnonymousCandidate
-        ? safeAnonymousRouteAllowed
-          ? "Anonymous response shape is not closed enough for safe inference"
-          : "Anonymous response crosses a manual or transformed response boundary"
+        ? "Anonymous response shape is not closed enough for safe inference"
         : `Return type "${typeString}" is not a reducible exported shape`,
     };
   }
@@ -607,6 +620,31 @@ function isAnonymousObjectType(type: ts.Type): boolean {
     !!(type.flags & ts.TypeFlags.Object) &&
     !!((type as ts.ObjectType).objectFlags & ts.ObjectFlags.Anonymous) &&
     type.aliasSymbol === undefined
+  );
+}
+
+function isArrayContainingAnonymousObject(
+  type: ts.Type,
+  checker: ts.TypeChecker,
+  insideArray = false,
+  seen = new Set<ts.Type>(),
+): boolean {
+  if (seen.has(type)) return false;
+  const nextSeen = new Set(seen);
+  nextSeen.add(type);
+
+  if (insideArray && isAnonymousObjectType(type)) return true;
+  if (type.isUnion()) {
+    return type.types.some((part) =>
+      isArrayContainingAnonymousObject(part, checker, insideArray, nextSeen),
+    );
+  }
+  if (!checker.isArrayType(type)) return false;
+
+  const [itemType] = getTypeArguments(type, checker);
+  return (
+    itemType !== undefined &&
+    isArrayContainingAnonymousObject(itemType, checker, true, nextSeen)
   );
 }
 
