@@ -297,6 +297,8 @@ unresolved with no leaked response-generated schemas:
 ```ts
 nestedRecord(): Promise<{ data: Record<string, unknown> }>;
 nestedUnknown(): Promise<{ data: unknown }>;
+unsafeArray(): Promise<{ data: unknown }[]>;
+undefinedArrayRoot(): Promise<{ ok: boolean }[] | undefined>;
 nestedEmpty(): Promise<{ data: {} }>;
 nestedComplexUnion(): Promise<{ data: { a: string } | { b: number } }>;
 nestedLibrary(): Promise<{ data: Buffer }>;
@@ -311,7 +313,9 @@ dangling `$ref` inside the inline schema.
 
 Before accepting the candidate, recursively reject TypeScript branches with
 unknown flags, open index signatures, calls/constructors, method properties, or
-non-literal multi-branch unions. After schema generation, recursively verify:
+non-literal multi-branch unions. Apply the same check to a top-level array whose
+item graph contains an anonymous object. After schema generation, recursively
+verify:
 
 - `unknown` refs are incomplete;
 - component refs exist in discovered or generated schema maps;

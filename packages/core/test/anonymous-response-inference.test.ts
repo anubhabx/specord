@@ -140,6 +140,14 @@ function inspectAnonymousResponse(
       "  complexUnionRoot(): Promise<{ left: string } | { right: number }> {",
       "    throw new Error('not implemented');",
       "  }",
+      "  @Get('safe-array')",
+      "  safeArray(): Promise<{ mode: 'draft' | 'live'; updatedAt: Date; count: number | null }[]> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('undefined-array-root')",
+      "  undefinedArrayRoot(): Promise<{ ok: boolean }[] | undefined> {",
+      "    throw new Error('not implemented');",
+      "  }",
       "  @Get('indexed')",
       "  indexed(): Promise<{ [key: string]: string; known: string }> {",
       "    throw new Error('not implemented');",
@@ -162,6 +170,10 @@ function inspectAnonymousResponse(
       "  }",
       "  @Get('nested-unknown')",
       "  nestedUnknown(): Promise<{ data: unknown }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('unsafe-array')",
+      "  unsafeArray(): Promise<{ data: unknown }[]> {",
       "    throw new Error('not implemented');",
       "  }",
       "  @Get('nested-empty')",
@@ -733,6 +745,31 @@ describe("anonymous response inference", () => {
     }
   });
 
+  it("preserves metadata for a closed top-level anonymous array in safe mode", () => {
+    const operation = inspectAnonymousResponse("safe").operations.find(
+      (item) => item.id === "AnonymousController.safeArray",
+    );
+
+    expect(operation?.responses[0]).toMatchObject({
+      inference: { status: "inferred" },
+      schema: {
+        kind: "array",
+        items: {
+          kind: "inline",
+          schema: {
+            type: "object",
+            required: ["mode", "updatedAt", "count"],
+            properties: {
+              mode: { type: "string", enum: ["draft", "live"] },
+              updatedAt: { type: "string", format: "date-time" },
+              count: { type: ["number", "null"] },
+            },
+          },
+        },
+      },
+    });
+  });
+
   it("keeps anonymous responses unresolved by default and when explicitly off", () => {
     const defaultOperation = inspectAnonymousResponse().operations.find(
       (item) => item.id === "AnonymousController.get",
@@ -779,6 +816,51 @@ describe("anonymous response inference", () => {
         kind: "inline",
         schema: { oneOf: expect.any(Array) },
       });
+    }
+  });
+
+  it("rejects incomplete anonymous array items only in safe mode", () => {
+    const safeOperation = inspectAnonymousResponse("safe").operations.find(
+      (item) => item.id === "AnonymousController.unsafeArray",
+    );
+
+    expect(safeOperation?.responses[0]).toMatchObject({
+      inference: {
+        status: "unresolved",
+        reason: "Anonymous response shape is not closed enough for safe inference",
+      },
+    });
+    expect(safeOperation?.responses[0]?.schema).toBeUndefined();
+
+    for (const anonymousObjects of [undefined, "off"] as const) {
+      const legacyOperation = inspectAnonymousResponse(
+        anonymousObjects,
+      ).operations.find((item) => item.id === "AnonymousController.unsafeArray");
+      expect(legacyOperation?.responses[0]?.inference.status).toBe("inferred");
+      expect(legacyOperation?.responses[0]?.schema).toMatchObject({
+        kind: "array",
+        items: { kind: "inline" },
+      });
+    }
+  });
+
+  it("rejects an anonymous array root unioned with undefined only in safe mode", () => {
+    const safeOperation = inspectAnonymousResponse("safe").operations.find(
+      (item) => item.id === "AnonymousController.undefinedArrayRoot",
+    );
+
+    expect(safeOperation?.responses[0]?.inference).toMatchObject({
+      status: "unresolved",
+      reason: "Anonymous response shape is not closed enough for safe inference",
+    });
+
+    for (const anonymousObjects of [undefined, "off"] as const) {
+      const legacyOperation = inspectAnonymousResponse(
+        anonymousObjects,
+      ).operations.find(
+        (item) => item.id === "AnonymousController.undefinedArrayRoot",
+      );
+      expect(legacyOperation?.responses[0]?.inference.status).toBe("inferred");
     }
   });
 

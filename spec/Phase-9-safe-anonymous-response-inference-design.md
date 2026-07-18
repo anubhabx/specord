@@ -110,10 +110,10 @@ multi-shape root with any direct anonymous object branch is explicitly rejected
 in safe mode and still passes through the route-boundary gate; default/off keep
 their legacy `oneOf` behavior.
 
-The same route gate applies to an existing top-level array response when its
-item graph contains an anonymous object. This prevents an array wrapper from
-bypassing a manual or transformed boundary without expanding safe-mode root
-eligibility beyond the anonymous object described above.
+The same route and complete-shape gates apply to an existing top-level array
+response when its item graph contains an anonymous object. This prevents an
+array wrapper from bypassing a manual or transformed boundary or retaining an
+incomplete anonymous item without expanding mixed root-union eligibility.
 
 Safe mode reasons from the TypeScript compiler's final structural type. Object
 spreads are not evaluated at runtime; they are usable only when the compiler has

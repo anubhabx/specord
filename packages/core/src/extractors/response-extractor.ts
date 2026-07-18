@@ -522,6 +522,13 @@ function inferReturnType(
 
   const generatedSchemas: Record<string, SchemaModel> = {};
   const anonymousRoot = anonymousObjectRootBranch(resolved.type);
+  const anonymousArrayRoot = isArrayContainingAnonymousObject(
+    resolved.type,
+    checker,
+  );
+  const hasUndefinedRootBranch =
+    resolved.type.isUnion() &&
+    resolved.type.types.some((part) => part.flags & ts.TypeFlags.Undefined);
   const unsupportedAnonymousRootUnion =
     options.inferSafeAnonymousObjects === true &&
     isUnsupportedAnonymousRootUnion(resolved.type);
@@ -529,7 +536,7 @@ function inferReturnType(
     options.inferSafeAnonymousObjects === true &&
     (anonymousRoot !== undefined ||
       unsupportedAnonymousRootUnion ||
-      isArrayContainingAnonymousObject(resolved.type, checker));
+      anonymousArrayRoot);
   const safeAnonymousRouteAllowed =
     safeAnonymousBoundaryCandidate &&
     routeAllowsSafeAnonymousInference(route, checker);
@@ -550,11 +557,12 @@ function inferReturnType(
 
   const safeAnonymousCandidate =
     options.inferSafeAnonymousObjects === true &&
-    anonymousRoot !== undefined;
-  const safeAnonymousRoot =
+    (anonymousRoot !== undefined || anonymousArrayRoot);
+  const safeAnonymousShape =
     safeAnonymousCandidate &&
-    anonymousRoot !== undefined &&
-    isSafeAnonymousRootType(anonymousRoot, checker) &&
+    !hasUndefinedRootBranch &&
+    (anonymousRoot === undefined ||
+      isSafeAnonymousRootType(anonymousRoot, checker)) &&
     isSafeAnonymousTypeBranch(
       resolved.type,
       checker,
@@ -562,6 +570,13 @@ function inferReturnType(
       discoveredSchemas,
       new Set(),
     );
+  if (safeAnonymousCandidate && !safeAnonymousShape) {
+    return {
+      schemas: {},
+      unresolved: true,
+      reason: "Anonymous response shape is not closed enough for safe inference",
+    };
+  }
   const schema = schemaFromType(
     resolved.type,
     checker,
@@ -571,11 +586,11 @@ function inferReturnType(
     new Set(),
     {
       nameHint: resolved.nameHint,
-      allowAnonymousObject: safeAnonymousRoot,
-      preserveArrayItemMetadata: safeAnonymousRoot,
+      allowAnonymousObject: safeAnonymousShape,
+      preserveArrayItemMetadata: safeAnonymousShape,
     },
   );
-  const schemaRef = typeSchemaToSchemaRef(schema, safeAnonymousRoot);
+  const schemaRef = typeSchemaToSchemaRef(schema, safeAnonymousShape);
 
   // Check if the return type is reducible
   if (schemaRef.kind === "unknown") {
@@ -591,7 +606,7 @@ function inferReturnType(
   }
 
   if (
-    safeAnonymousRoot &&
+    safeAnonymousShape &&
     !isCompleteResponseSchemaRef(schemaRef, discoveredSchemas, generatedSchemas)
   ) {
     return {
