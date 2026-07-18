@@ -58,6 +58,11 @@ export type SpecordConfigV1 = {
     globalPrefix?: string;
     versioning?: { strategy: "uri" | "header" | "media-type"; value?: string };
   };
+  inference?: {
+    responses?: {
+      anonymousObjects?: "off" | "safe";
+    };
+  };
   securitySchemes?: Record<string, OpenApiSecuritySchemeObject>;
   operations?: Record<
     string,
@@ -155,6 +160,26 @@ routing: {
 ```
 
 This emits paths under `/v1/...`. Header and media-type versioning currently emit `EXTRACTOR_UNSUPPORTED_VERSIONING` because V1 cannot safely express them as static paths.
+
+## Anonymous Response Inference
+
+Safe anonymous response inference is opt-in and defaults to `"off"`:
+
+```ts
+export default {
+  inference: {
+    responses: {
+      anonymousObjects: "safe",
+    },
+  },
+};
+```
+
+Safe mode is static-only and whole-shape: Specord infers an anonymous response only when the compiler-visible root, route, and every nested branch are closed and reducible. Canonical TypeScript `Promise<T>` and installed `rxjs` `Observable<T>` wrappers are resolved semantically, so imported aliases, namespace-qualified references, and instantiated type aliases work while project-local lookalikes remain unresolved. Supported branches include primitives and literals, `Date`, arrays, nested closed objects, valid discovered or response-generated schema references (including non-generic interfaces and object type aliases), and nullable forms. A monomorphic alias such as `type StringBox = Box<string>` has its own stable component identity and remains supported; a direct generic reference such as `Box<string>` does not. A root shaped as one anonymous object branch plus `null` preserves that nullability; `undefined` or `void` does not opt a root into safe inference. A multi-shape root containing a direct anonymous object branch or an anonymous object beneath an array branch remains unresolved in safe mode and cannot bypass manual or transformed response boundaries; default/off retain their legacy behavior.
+
+It does not infer records or index signatures, `any`/`unknown`/`never`, empty or callable shapes, value-position `undefined` branches, direct generic schema references, complex unions or conditional types, dangling references, streams, framework response classes, manual `@Res()` / `@Response()` handling, redirects, or rendered views. `undefined` remains supported only where the emitted schema preserves it as an optional object property. The same route and whole-shape checks apply to top-level arrays containing anonymous object items, so an array wrapper cannot retain an incomplete item or cross a response boundary. It also does not model global or runtime serialization, interceptor, filter, or other transform effects; use an operation response override whenever the runtime response differs from the static shape.
+
+Explicit Swagger success responses and `operations.<id>.responses` overrides take precedence. An override marks the affected response as `overridden` and removes only its direct unresolved-response diagnostic.
 
 ## Overrides
 

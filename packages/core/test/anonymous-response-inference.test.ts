@@ -1,0 +1,1497 @@
+import fs from "node:fs";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import type { SpecordConfigV1 } from "@specord/types";
+import { inspect, resolveConfig } from "../src/index.ts";
+import { isCompleteOpenApiSchema } from "../src/extractors/response-extractor.ts";
+import {
+  cleanupTempProjects,
+  createTempProject,
+} from "./helpers/temp-project.ts";
+
+const tempRoots: string[] = [];
+
+afterEach(() => {
+  cleanupTempProjects(tempRoots);
+});
+
+function inspectAnonymousResponse(
+  anonymousObjects?: "off" | "safe",
+  overrides?: Pick<SpecordConfigV1, "operations">,
+  includeNestedObjectAlias = false,
+  includeGenericReferences = false,
+) {
+  const projectRoot = createTempProject(tempRoots, {
+    prefix: "specord-anonymous-response-",
+  });
+  const srcRoot = path.join(projectRoot, "src");
+
+  fs.writeFileSync(
+    path.join(srcRoot, "payload.dto.ts"),
+    [
+      "export class PayloadDto {",
+      "  id!: string;",
+      "}",
+      "declare namespace z {",
+      "  interface ZodType<T> {}",
+      "  interface ZodObject<T> extends ZodType<T> {",
+      "    passthrough(): ZodObject<T>;",
+      "    strict(): ZodObject<T>;",
+      "  }",
+      "  function string(): ZodType<string>;",
+      "  function object(shape: { id: ZodType<string> }): ZodObject<{ id: string }> ;",
+      "}",
+      "export const OpenPassthroughSchema = z.object({ id: z.string() }).passthrough();",
+      "export type OpenPassthrough = { id: string };",
+      "export const ClosedStrictSchema = z.object({ id: z.string() }).strict();",
+      "export type ClosedStrict = { id: string };",
+      "export interface ResponseGeneratedUnsafe {",
+      "  id: string;",
+      "  extra: unknown;",
+      "}",
+      ...(includeNestedObjectAlias
+        ? [
+            "export type NestedObjectAlias = {",
+            "  code: string;",
+            "};",
+          ]
+        : []),
+    ].join("\n"),
+  );
+
+  fs.writeFileSync(
+    path.join(srcRoot, "nestjs-common.d.ts"),
+    [
+      "declare module '@nestjs/common' {",
+      "  export function Res(): ParameterDecorator;",
+      "  export function Response(): ParameterDecorator;",
+      "  export function UseInterceptors(...interceptors: unknown[]): MethodDecorator & ClassDecorator;",
+      "  export function UseFilters(...filters: unknown[]): MethodDecorator & ClassDecorator;",
+      "  export function SerializeOptions(options: unknown): MethodDecorator & ClassDecorator;",
+      "  export function Redirect(url?: string, statusCode?: number): MethodDecorator;",
+      "  export function Render(template: string): MethodDecorator;",
+      "  export const nested: {",
+      "    UseFilters(...filters: unknown[]): MethodDecorator & ClassDecorator;",
+      "  };",
+      "}",
+    ].join("\n"),
+  );
+
+  fs.writeFileSync(
+    path.join(srcRoot, "response-decorator-barrel.ts"),
+    ["export { UseInterceptors as Alias } from '@nestjs/common';"].join("\n"),
+  );
+
+  fs.writeFileSync(
+    path.join(srcRoot, "unrelated-response-decorators.ts"),
+    [
+      "export declare function UseFilters(): MethodDecorator;",
+      "export declare function Response(): ParameterDecorator;",
+    ].join("\n"),
+  );
+
+  fs.writeFileSync(
+    path.join(srcRoot, "shadowed-response-decorator-barrel.ts"),
+    [
+      "export * from '@nestjs/common';",
+      "export function UseFilters(): MethodDecorator { return () => undefined; }",
+    ].join("\n"),
+  );
+
+  fs.writeFileSync(
+    path.join(srcRoot, "anonymous.controller.ts"),
+    [
+      "declare function Controller(path?: string): ClassDecorator;",
+      "declare function Get(path?: string): MethodDecorator;",
+      "declare function ApiOkResponse(options?: unknown): MethodDecorator;",
+      "declare const ResponseInterceptor: unknown;",
+      "declare const ResponseFilter: unknown;",
+      "declare class Buffer { readonly length: number; }",
+      ...(includeGenericReferences
+        ? [
+            "interface ResponseBox<T> { value: T; }",
+            "type ResponseEnvelope<T> = { value: T };",
+            "type StringBox = ResponseBox<string>;",
+            "type NumberEnvelope = ResponseEnvelope<number>;",
+          ]
+        : []),
+      includeNestedObjectAlias
+        ? "import { PayloadDto, type NestedObjectAlias, type OpenPassthrough, type ClosedStrict, type ResponseGeneratedUnsafe } from './payload.dto';"
+        : "import { PayloadDto, type OpenPassthrough, type ClosedStrict, type ResponseGeneratedUnsafe } from './payload.dto';",
+      "import { Res, Response, UseInterceptors, UseFilters, SerializeOptions, Redirect, Render, Res as ManualResponse, UseInterceptors as TransformResponse } from '@nestjs/common';",
+      "import * as ResponseDecorators from '@nestjs/common';",
+      "import * as DecoratorBarrel from './response-decorator-barrel';",
+      "@Controller('anonymous')",
+      "class AnonymousController {",
+      "  @Get()",
+      "  get(): Promise<{",
+      "    id: string;",
+      "    active: boolean;",
+      "    mode: 'draft' | 'live';",
+      "    updatedAt: Date;",
+      "    tags?: string[];",
+      "    statuses: ('draft' | 'live')[];",
+      "    dates: Date[];",
+      "    nullableTags: (string | null)[];",
+      "    metrics: { count: number | null };",
+      "  }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('nullable-root')",
+      "  nullableRoot(): Promise<{ ok: boolean } | null> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('undefined-root')",
+      "  undefinedRoot(): Promise<{ ok: boolean } | undefined> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('complex-union-root')",
+      "  complexUnionRoot(): Promise<{ left: string } | { right: number }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('mixed-union-array')",
+      "  mixedUnionArray(): Promise<string | { ok: boolean }[]> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('safe-array')",
+      "  safeArray(): Promise<{ mode: 'draft' | 'live'; updatedAt: Date; count: number | null }[]> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('undefined-array-root')",
+      "  undefinedArrayRoot(): Promise<{ ok: boolean }[] | undefined> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('void-array-root')",
+      "  voidArrayRoot(): Promise<{ ok: boolean }[] | void> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('indexed')",
+      "  indexed(): Promise<{ [key: string]: string; known: string }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('callable')",
+      "  callable(): Promise<{ (): string; id: string }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('method')",
+      "  withMethod(): Promise<{ id: string; run(): string }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('record')",
+      "  openRecord(): Promise<Record<string, unknown>> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('nested-record')",
+      "  nestedRecord(): Promise<{ data: Record<string, unknown> }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('nested-unknown')",
+      "  nestedUnknown(): Promise<{ data: unknown }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('unsafe-array')",
+      "  unsafeArray(): Promise<{ data: unknown }[]> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('nested-undefined-array')",
+      "  nestedUndefinedArray(): Promise<{ items: ({ ok: boolean } | undefined)[] }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('optional-nested-items')",
+      "  optionalNestedItems(): Promise<{ items?: { ok: boolean }[] }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('nested-empty')",
+      "  nestedEmpty(): Promise<{ data: {} }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('nested-complex-union')",
+      "  nestedComplexUnion(): Promise<{ data: { a: string } | { b: number } }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('nested-library')",
+      "  nestedLibrary(): Promise<{ data: Buffer }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('nested-discovered-class')",
+      "  nestedDiscoveredClass(): Promise<{ data: PayloadDto }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('zod-passthrough')",
+      "  zodPassthrough(): Promise<{ data: OpenPassthrough }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('zod-strict')",
+      "  zodStrict(): Promise<{ data: ClosedStrict }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('generated-unsafe-first')",
+      "  generatedUnsafeFirst(): Promise<ResponseGeneratedUnsafe> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('generated-unsafe-later')",
+      "  generatedUnsafeLater(): Promise<{ data: ResponseGeneratedUnsafe }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      ...(includeGenericReferences
+        ? [
+            "  @Get('generic-interface-string')",
+            "  genericInterfaceString(): Promise<{ data: ResponseBox<string> }> {",
+            "    throw new Error('not implemented');",
+            "  }",
+            "  @Get('generic-interface-number')",
+            "  genericInterfaceNumber(): Promise<{ data: ResponseBox<number> }> {",
+            "    throw new Error('not implemented');",
+            "  }",
+            "  @Get('generic-alias-string')",
+            "  genericAliasString(): Promise<{ data: ResponseEnvelope<string> }> {",
+            "    throw new Error('not implemented');",
+            "  }",
+            "  @Get('generic-alias-number')",
+            "  genericAliasNumber(): Promise<{ data: ResponseEnvelope<number> }> {",
+            "    throw new Error('not implemented');",
+            "  }",
+            "  @Get('monomorphic-interface-alias')",
+            "  monomorphicInterfaceAlias(): Promise<{ data: StringBox }> {",
+            "    throw new Error('not implemented');",
+            "  }",
+            "  @Get('monomorphic-type-alias')",
+            "  monomorphicTypeAlias(): Promise<{ data: NumberEnvelope }> {",
+            "    throw new Error('not implemented');",
+            "  }",
+          ]
+        : []),
+      ...(includeNestedObjectAlias
+        ? [
+            "  @Get('nested-object-alias')",
+            "  nestedObjectAlias(): Promise<{ data: NestedObjectAlias }> {",
+            "    throw new Error('not implemented');",
+            "  }",
+          ]
+        : []),
+      "  @Get('manual')",
+      "  manual(@Res() response: unknown): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('manual-alias')",
+      "  manualAlias(@Response() response: unknown): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('manual-array')",
+      "  manualArray(@Res() response: unknown): Promise<{ ok: boolean }[]> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('manual-nullable')",
+      "  manualNullable(@Res() response: unknown): Promise<{ ok: boolean } | null> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('manual-complex-union')",
+      "  manualComplexUnion(@Res() response: unknown): Promise<{ left: string } | { right: number }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('manual-mixed-union-array')",
+      "  manualMixedUnionArray(@Res() response: unknown): Promise<string | { ok: boolean }[]> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('manual-void-array-root')",
+      "  manualVoidArrayRoot(@Res() response: unknown): Promise<{ ok: boolean }[] | void> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('transformed')",
+      "  @UseInterceptors(ResponseInterceptor)",
+      "  transformed(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('transformed-array')",
+      "  @UseInterceptors(ResponseInterceptor)",
+      "  transformedArray(): Promise<{ ok: boolean }[]> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('filtered')",
+      "  @UseFilters(ResponseFilter)",
+      "  filtered(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('serialized')",
+      "  @SerializeOptions({})",
+      "  serialized(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('redirected')",
+      "  @Redirect('/target')",
+      "  redirected(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('rendered')",
+      "  @Render('view')",
+      "  rendered(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('aliased-transform')",
+      "  @TransformResponse(ResponseInterceptor)",
+      "  aliasedTransform(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('namespace-filter')",
+      "  @ResponseDecorators.UseFilters(ResponseFilter)",
+      "  namespaceFilter(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('aliased-manual')",
+      "  aliasedManual(@ManualResponse() response: unknown): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('namespace-manual')",
+      "  namespaceManual(@ResponseDecorators.Response() response: unknown): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('barrel-transform')",
+      "  @DecoratorBarrel.Alias(ResponseInterceptor)",
+      "  barrelTransform(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('nested-filter')",
+      "  @ResponseDecorators.nested.UseFilters(ResponseFilter)",
+      "  nestedFilter(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('swagger')",
+      "  @ApiOkResponse({ schema: { type: 'string' } })",
+      "  swagger(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "}",
+      "@Controller('intercepted-controller')",
+      "@UseInterceptors(ResponseInterceptor)",
+      "class InterceptedController {",
+      "  @Get()",
+      "  get(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "}",
+      "@Controller('filtered-controller')",
+      "@UseFilters(ResponseFilter)",
+      "class FilteredController {",
+      "  @Get()",
+      "  get(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "}",
+      "@Controller('serialized-controller')",
+      "@SerializeOptions({})",
+      "class SerializedController {",
+      "  @Get()",
+      "  get(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "}",
+    ].join("\n"),
+  );
+
+  fs.writeFileSync(
+    path.join(srcRoot, "unrelated-decorator.controller.ts"),
+    [
+      "import { UseFilters as ImportedUseFilters, Response as ImportedResponse } from './unrelated-response-decorators';",
+      "import { UseFilters as ShadowedUseFilters } from './shadowed-response-decorator-barrel';",
+      "declare function Controller(path?: string): ClassDecorator;",
+      "declare function Get(path?: string): MethodDecorator;",
+      "declare function UseInterceptors(): MethodDecorator;",
+      "function Response(): ParameterDecorator { return () => undefined; }",
+      "const UseFilters = (): MethodDecorator => () => undefined;",
+      "const localDecorators = {",
+      "  UseInterceptors: (): MethodDecorator => () => undefined,",
+      "};",
+      "@Controller('unrelated-decorators')",
+      "class UnrelatedDecoratorController {",
+      "  @Get('variable')",
+      "  @UseFilters()",
+      "  variable(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('property')",
+      "  @localDecorators.UseInterceptors()",
+      "  property(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('ambient-transform')",
+      "  @UseInterceptors()",
+      "  ambientTransform(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('local-manual')",
+      "  localManual(@Response() response: unknown): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('imported-transform')",
+      "  @ImportedUseFilters()",
+      "  importedTransform(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('imported-manual')",
+      "  importedManual(@ImportedResponse() response: unknown): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('shadowed-star')",
+      "  @ShadowedUseFilters()",
+      "  shadowedStar(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "}",
+    ].join("\n"),
+  );
+
+  return inspect(
+    resolveConfig(
+      { project: path.join(projectRoot, "tsconfig.json"), root: srcRoot },
+      anonymousObjects || overrides
+        ? {
+            ...(anonymousObjects
+              ? { inference: { responses: { anonymousObjects } } }
+              : {}),
+            ...overrides,
+          }
+        : undefined,
+    ),
+  );
+}
+
+function inspectUnresolvedCanonicalDecorators() {
+  const projectRoot = createTempProject(tempRoots, {
+    prefix: "specord-unresolved-response-decorator-",
+  });
+  const srcRoot = path.join(projectRoot, "src");
+
+  fs.writeFileSync(
+    path.join(srcRoot, "unresolved-response-barrel.ts"),
+    "export { UseFilters as FilterAlias } from '@nestjs/common';",
+  );
+
+  fs.writeFileSync(
+    path.join(srcRoot, "unresolved-response-subpath.ts"),
+    "export { UseFilters as SubpathFilter } from '@nestjs/common/decorators/core/use-filters.decorator';",
+  );
+
+  fs.writeFileSync(
+    path.join(srcRoot, "unresolved-response-multihop.ts"),
+    "export { SubpathFilter as MultiHopFilter } from './unresolved-response-subpath';",
+  );
+
+  fs.writeFileSync(
+    path.join(srcRoot, "unresolved.controller.ts"),
+    [
+      "import { UseFilters as ImportedTransform, Response as ImportedResponse } from '@nestjs/common';",
+      "import * as NestCommon from '@nestjs/common';",
+      "import { FilterAlias } from './unresolved-response-barrel';",
+      "import { MultiHopFilter } from './unresolved-response-multihop';",
+      "declare function Controller(path?: string): ClassDecorator;",
+      "declare function Get(path?: string): MethodDecorator;",
+      "@Controller('unresolved-decorators')",
+      "class UnresolvedDecoratorController {",
+      "  @Get('named')",
+      "  @ImportedTransform()",
+      "  named(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('namespace')",
+      "  @NestCommon.UseFilters()",
+      "  namespace(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('manual')",
+      "  manual(@ImportedResponse() response: unknown): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('named-barrel')",
+      "  @FilterAlias()",
+      "  namedBarrel(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('multihop-subpath')",
+      "  @MultiHopFilter()",
+      "  multiHopSubpath(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "}",
+    ].join("\n"),
+  );
+
+  return inspect(
+    resolveConfig(
+      { project: path.join(projectRoot, "tsconfig.json"), root: srcRoot },
+      { inference: { responses: { anonymousObjects: "safe" } } },
+    ),
+  );
+}
+
+function inspectShadowedResponseTypes(
+  anonymousObjects?: "off" | "safe",
+  rxjsSource: "installed" | "augmented" | "ambient" = "installed",
+) {
+  const projectRoot = createTempProject(tempRoots, {
+    prefix: "specord-shadowed-response-types-",
+  });
+  const srcRoot = path.join(projectRoot, "src");
+
+  fs.writeFileSync(
+    path.join(srcRoot, "shadowed-types.ts"),
+    [
+      "export interface Date { extra: unknown; }",
+      "export interface Promise<T> { payload: T; debug: unknown; }",
+      "export interface Observable<T> { payload: T; debug: unknown; }",
+    ].join("\n"),
+  );
+
+  if (rxjsSource !== "ambient") {
+    const rxjsRoot = path.join(projectRoot, "node_modules", "rxjs");
+    fs.mkdirSync(rxjsRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(rxjsRoot, "package.json"),
+      JSON.stringify({ name: "rxjs", version: "0.0.0", types: "index.d.ts" }),
+    );
+    fs.writeFileSync(
+      path.join(rxjsRoot, "index.d.ts"),
+      "export interface Observable<T> { subscribe(): T; }",
+    );
+    if (rxjsSource === "augmented") {
+      fs.writeFileSync(
+        path.join(srcRoot, "rxjs-augmentation.d.ts"),
+        [
+          "import 'rxjs';",
+          "declare module 'rxjs' {",
+          "  interface Observable<T> { custom(): void; }",
+          "}",
+        ].join("\n"),
+      );
+    }
+  } else {
+    fs.writeFileSync(
+      path.join(srcRoot, "rxjs.d.ts"),
+      [
+        "declare module 'rxjs' {",
+        "  export interface Observable<T> { payload: T; debug: unknown; }",
+        "}",
+      ].join("\n"),
+    );
+  }
+
+  fs.writeFileSync(
+    path.join(srcRoot, "shadowed-types.controller.ts"),
+    [
+      "import type { Date, Promise, Observable, Promise as Async, Observable as Stream } from './shadowed-types';",
+      "import type * as LocalTypes from './shadowed-types';",
+      "declare function Controller(path?: string): ClassDecorator;",
+      "declare function Get(path?: string): MethodDecorator;",
+      "@Controller('shadowed-types')",
+      "class ShadowedTypeController {",
+      "  @Get('date')",
+      "  shadowedDate(): { when: Date } {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('promise-annotated')",
+      "  promiseAnnotated(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('observable-annotated')",
+      "  observableAnnotated(): Observable<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('promise-alias')",
+      "  promiseAlias(): Async<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('observable-alias')",
+      "  observableAlias(): Stream<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('promise-qualified')",
+      "  promiseQualified(): LocalTypes.Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('observable-qualified')",
+      "  observableQualified(): LocalTypes.Observable<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('nested-noncanonical')",
+      "  nestedNoncanonical(): globalThis.Promise<LocalTypes.Observable<{ ok: boolean }>> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('promise-inferred')",
+      "  promiseInferred() {",
+      "    return {} as Promise<{ ok: boolean }>;",
+      "  }",
+      "  @Get('observable-inferred')",
+      "  observableInferred() {",
+      "    return {} as Observable<{ ok: boolean }>;",
+      "  }",
+      "}",
+    ].join("\n"),
+  );
+
+  fs.writeFileSync(
+    path.join(srcRoot, "rxjs.controller.ts"),
+    [
+      "import type { Observable, Observable as Stream } from 'rxjs';",
+      "import type * as RxTypes from 'rxjs';",
+      "type Async<T> = Promise<T>;",
+      "type AsyncList<T> = Promise<T[]>;",
+      "type AsyncStream<T> = Async<RxTypes.Observable<T>>;",
+      "declare function Controller(path?: string): ClassDecorator;",
+      "declare function Get(path?: string): MethodDecorator;",
+      "@Controller('rxjs')",
+      "class CanonicalObservableController {",
+      "  @Get()",
+      "  get(): Observable<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('observable-alias')",
+      "  observableAlias(): Stream<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('observable-qualified')",
+      "  observableQualified(): RxTypes.Observable<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('observable-nullable')",
+      "  observableNullable(): RxTypes.Observable<{ ok: boolean } | null> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('promise-alias')",
+      "  promiseAlias(): Async<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('promise-qualified')",
+      "  promiseQualified(): globalThis.Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('promise-array-alias')",
+      "  promiseArrayAlias(): AsyncList<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('nested-container-alias')",
+      "  nestedContainerAlias(): AsyncStream<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('promise-like')",
+      "  promiseLike(): PromiseLike<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "}",
+    ].join("\n"),
+  );
+
+  return inspect(
+    resolveConfig(
+      { project: path.join(projectRoot, "tsconfig.json"), root: srcRoot },
+      anonymousObjects
+        ? { inference: { responses: { anonymousObjects } } }
+        : undefined,
+    ),
+  );
+}
+
+describe("anonymous response inference", () => {
+  it("revalidates nullable object and array schema completeness", () => {
+    const isComplete = (schema: Parameters<typeof isCompleteOpenApiSchema>[0]) =>
+      isCompleteOpenApiSchema(schema, {}, {}, new Set());
+
+    expect(isComplete({ type: ["object", "null"] })).toBe(false);
+    expect(
+      isComplete({
+        type: ["object", "null"],
+        properties: { ok: { type: "boolean" } },
+      }),
+    ).toBe(true);
+    expect(isComplete({ type: ["array", "null"] })).toBe(false);
+    expect(
+      isComplete({
+        type: ["array", "null"],
+        items: { type: "string" },
+      }),
+    ).toBe(true);
+    expect(isComplete({ type: ["string", "null"] })).toBe(true);
+  });
+
+  it("infers a closed anonymous response object in safe mode", () => {
+    const model = inspectAnonymousResponse("safe");
+    const operation = model.operations.find(
+      (item) => item.id === "AnonymousController.get",
+    );
+
+    expect(operation?.responses[0]).toMatchObject({
+      status: 200,
+      inference: { status: "inferred" },
+      schema: {
+        kind: "inline",
+        schema: {
+          type: "object",
+          required: [
+            "id",
+            "active",
+            "mode",
+            "updatedAt",
+            "statuses",
+            "dates",
+            "nullableTags",
+            "metrics",
+          ],
+          properties: {
+            id: { type: "string" },
+            active: { type: "boolean" },
+            mode: { type: "string", enum: ["draft", "live"] },
+            updatedAt: { type: "string", format: "date-time" },
+            tags: { type: "array", items: { type: "string" } },
+            statuses: {
+              type: "array",
+              items: { type: "string", enum: ["draft", "live"] },
+            },
+            dates: {
+              type: "array",
+              items: { type: "string", format: "date-time" },
+            },
+            nullableTags: {
+              type: "array",
+              items: { type: ["string", "null"] },
+            },
+            metrics: {
+              type: "object",
+              required: ["count"],
+              properties: {
+                count: { type: ["number", "null"] },
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(false);
+  });
+
+  it("infers a nullable closed anonymous response root in safe mode", () => {
+    const model = inspectAnonymousResponse("safe");
+    const operation = model.operations.find(
+      (item) => item.id === "AnonymousController.nullableRoot",
+    );
+
+    expect(operation?.responses[0]).toMatchObject({
+      status: 200,
+      inference: { status: "inferred" },
+      schema: {
+        kind: "inline",
+        schema: {
+          type: ["object", "null"],
+          required: ["ok"],
+          properties: { ok: { type: "boolean" } },
+        },
+      },
+    });
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(false);
+
+    for (const anonymousObjects of [undefined, "off"] as const) {
+      const disabledOperation = inspectAnonymousResponse(anonymousObjects).operations.find(
+        (item) => item.id === "AnonymousController.nullableRoot",
+      );
+      expect(disabledOperation?.responses[0]?.inference.status).toBe("unresolved");
+    }
+  });
+
+  it("preserves metadata for a closed top-level anonymous array in safe mode", () => {
+    const operation = inspectAnonymousResponse("safe").operations.find(
+      (item) => item.id === "AnonymousController.safeArray",
+    );
+
+    expect(operation?.responses[0]).toMatchObject({
+      inference: { status: "inferred" },
+      schema: {
+        kind: "array",
+        items: {
+          kind: "inline",
+          schema: {
+            type: "object",
+            required: ["mode", "updatedAt", "count"],
+            properties: {
+              mode: { type: "string", enum: ["draft", "live"] },
+              updatedAt: { type: "string", format: "date-time" },
+              count: { type: ["number", "null"] },
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it("keeps anonymous responses unresolved by default and when explicitly off", () => {
+    const defaultOperation = inspectAnonymousResponse().operations.find(
+      (item) => item.id === "AnonymousController.get",
+    );
+    const explicitlyOffOperation = inspectAnonymousResponse("off").operations.find(
+      (item) => item.id === "AnonymousController.get",
+    );
+
+    expect(defaultOperation?.responses[0]?.inference.status).toBe("unresolved");
+    expect(
+      defaultOperation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
+    expect(explicitlyOffOperation?.responses[0]?.inference.status).toBe("unresolved");
+    expect(
+      explicitlyOffOperation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects direct anonymous root unions only in safe mode", () => {
+    const safeOperation = inspectAnonymousResponse("safe").operations.find(
+      (item) => item.id === "AnonymousController.complexUnionRoot",
+    );
+
+    expect(safeOperation?.responses[0]?.inference).toMatchObject({
+      status: "unresolved",
+      reason: "Anonymous response shape is not closed enough for safe inference",
+    });
+    expect(
+      safeOperation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
+
+    for (const anonymousObjects of [undefined, "off"] as const) {
+      const legacyOperation = inspectAnonymousResponse(anonymousObjects).operations.find(
+        (item) => item.id === "AnonymousController.complexUnionRoot",
+      );
+      expect(legacyOperation?.responses[0]?.inference.status).toBe("inferred");
+      expect(legacyOperation?.responses[0]?.schema).toMatchObject({
+        kind: "inline",
+        schema: { oneOf: expect.any(Array) },
+      });
+    }
+  });
+
+  it("rejects incomplete anonymous array items only in safe mode", () => {
+    const safeOperation = inspectAnonymousResponse("safe").operations.find(
+      (item) => item.id === "AnonymousController.unsafeArray",
+    );
+
+    expect(safeOperation?.responses[0]).toMatchObject({
+      inference: {
+        status: "unresolved",
+        reason: "Anonymous response shape is not closed enough for safe inference",
+      },
+    });
+    expect(safeOperation?.responses[0]?.schema).toBeUndefined();
+
+    for (const anonymousObjects of [undefined, "off"] as const) {
+      const legacyOperation = inspectAnonymousResponse(
+        anonymousObjects,
+      ).operations.find((item) => item.id === "AnonymousController.unsafeArray");
+      expect(legacyOperation?.responses[0]?.inference.status).toBe("inferred");
+      expect(legacyOperation?.responses[0]?.schema).toMatchObject({
+        kind: "array",
+        items: { kind: "inline" },
+      });
+    }
+  });
+
+  it("rejects undefined unions in nested value positions in safe mode", () => {
+    const model = inspectAnonymousResponse("safe");
+    const operation = model.operations.find(
+      (item) => item.id === "AnonymousController.nestedUndefinedArray",
+    );
+    const optionalOperation = model.operations.find(
+      (item) => item.id === "AnonymousController.optionalNestedItems",
+    );
+
+    expect(operation?.responses[0]).toMatchObject({
+      inference: {
+        status: "unresolved",
+        reason: "Anonymous response shape is not closed enough for safe inference",
+      },
+    });
+    expect(operation?.responses[0]?.schema).toBeUndefined();
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
+    expect(optionalOperation?.responses[0]).toMatchObject({
+      inference: { status: "inferred" },
+      schema: {
+        kind: "inline",
+        schema: {
+          type: "object",
+          properties: {
+            items: {
+              type: "array",
+              items: { type: "object" },
+            },
+          },
+        },
+      },
+    });
+    expect(
+      (
+        optionalOperation?.responses[0]?.schema as
+          | { kind: "inline"; schema: { required?: string[] } }
+          | undefined
+      )?.schema.required,
+    ).toBeUndefined();
+  });
+
+  it("rejects anonymous array roots with undefined-like branches only in safe mode", () => {
+    const safeModel = inspectAnonymousResponse("safe");
+    const safeOperation = safeModel.operations.find(
+      (item) => item.id === "AnonymousController.undefinedArrayRoot",
+    );
+    const voidOperation = safeModel.operations.find(
+      (item) => item.id === "AnonymousController.voidArrayRoot",
+    );
+    const manualVoidOperation = safeModel.operations.find(
+      (item) => item.id === "AnonymousController.manualVoidArrayRoot",
+    );
+
+    expect(safeOperation?.responses[0]?.inference).toMatchObject({
+      status: "unresolved",
+      reason: "Anonymous response shape is not closed enough for safe inference",
+    });
+    expect(voidOperation?.responses[0]?.inference).toMatchObject({
+      status: "unresolved",
+      reason: "Anonymous response shape is not closed enough for safe inference",
+    });
+    expect(voidOperation?.responses[0]?.schema).toBeUndefined();
+    expect(
+      voidOperation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
+    expect(manualVoidOperation?.responses[0]?.inference).toMatchObject({
+      status: "unresolved",
+      reason: "Anonymous response crosses a manual or transformed response boundary",
+    });
+    expect(manualVoidOperation?.responses[0]?.schema).toBeUndefined();
+
+    for (const anonymousObjects of [undefined, "off"] as const) {
+      const legacyModel = inspectAnonymousResponse(anonymousObjects);
+      for (const operationId of [
+        "AnonymousController.undefinedArrayRoot",
+        "AnonymousController.voidArrayRoot",
+        "AnonymousController.manualVoidArrayRoot",
+      ]) {
+        expect(
+          legacyModel.operations.find((item) => item.id === operationId)?.responses[0]
+            ?.inference.status,
+        ).toBe("inferred");
+      }
+      expect(
+        legacyModel.operations.find(
+          (item) => item.id === "AnonymousController.voidArrayRoot",
+        )?.responses[0]?.schema,
+      ).toMatchObject({
+        kind: "inline",
+        schema: {
+          oneOf: expect.arrayContaining([
+            expect.objectContaining({ type: "array" }),
+            { type: "null" },
+          ]),
+        },
+      });
+    }
+  });
+
+  it("blocks unresolved canonical Nest response decorators", () => {
+    const model = inspectUnresolvedCanonicalDecorators();
+
+    for (const operationId of [
+      "UnresolvedDecoratorController.named",
+      "UnresolvedDecoratorController.namespace",
+      "UnresolvedDecoratorController.manual",
+      "UnresolvedDecoratorController.namedBarrel",
+      "UnresolvedDecoratorController.multiHopSubpath",
+    ]) {
+      const operation = model.operations.find((item) => item.id === operationId);
+      expect(operation?.responses[0]?.inference.status).toBe("unresolved");
+      expect(
+        operation?.diagnostics.some(
+          (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("rejects shadowed Date and response containers in safe mode", () => {
+    const model = inspectShadowedResponseTypes("safe");
+
+    for (const operationId of [
+      "ShadowedTypeController.shadowedDate",
+      "ShadowedTypeController.promiseAnnotated",
+      "ShadowedTypeController.observableAnnotated",
+      "ShadowedTypeController.promiseAlias",
+      "ShadowedTypeController.observableAlias",
+      "ShadowedTypeController.promiseQualified",
+      "ShadowedTypeController.observableQualified",
+      "ShadowedTypeController.nestedNoncanonical",
+      "ShadowedTypeController.promiseInferred",
+      "ShadowedTypeController.observableInferred",
+    ]) {
+      const operation = model.operations.find((item) => item.id === operationId);
+      expect(operation?.responses[0]?.inference.status).toBe("unresolved");
+      expect(
+        operation?.diagnostics.some(
+          (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+        ),
+      ).toBe(true);
+      if (operationId !== "ShadowedTypeController.shadowedDate") {
+        expect(
+          operation?.diagnostics.some((diagnostic) =>
+            diagnostic.message.includes("non-canonical"),
+          ),
+        ).toBe(true);
+      }
+    }
+
+    for (const operationId of [
+      "CanonicalObservableController.get",
+      "CanonicalObservableController.observableAlias",
+      "CanonicalObservableController.observableQualified",
+      "CanonicalObservableController.observableNullable",
+      "CanonicalObservableController.promiseAlias",
+      "CanonicalObservableController.promiseQualified",
+      "CanonicalObservableController.promiseArrayAlias",
+      "CanonicalObservableController.nestedContainerAlias",
+    ]) {
+      const operation = model.operations.find((item) => item.id === operationId);
+      expect(operation?.responses[0]?.inference.status).toBe("inferred");
+      expect(
+        operation?.diagnostics.some(
+          (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+        ),
+      ).toBe(false);
+    }
+
+    const arrayAlias = model.operations.find(
+      (item) => item.id === "CanonicalObservableController.promiseArrayAlias",
+    );
+    expect(arrayAlias?.responses[0]?.schema).toMatchObject({
+      kind: "array",
+      items: {
+        kind: "inline",
+        schema: {
+          type: "object",
+          required: ["ok"],
+          properties: { ok: { type: "boolean" } },
+        },
+      },
+    });
+
+    const promiseLike = model.operations.find(
+      (item) => item.id === "CanonicalObservableController.promiseLike",
+    );
+    expect(promiseLike?.responses[0]?.inference.status).toBe("unresolved");
+    expect(
+      promiseLike?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps shadowed response containers unresolved by default", () => {
+    const model = inspectShadowedResponseTypes("off");
+
+    for (const operationId of [
+      "ShadowedTypeController.promiseAnnotated",
+      "ShadowedTypeController.observableAnnotated",
+      "ShadowedTypeController.promiseInferred",
+      "ShadowedTypeController.observableInferred",
+    ]) {
+      const operation = model.operations.find((item) => item.id === operationId);
+      expect(operation?.responses[0]?.inference.status).toBe("unresolved");
+    }
+  });
+
+  it("rejects a project-local ambient rxjs Observable in safe mode", () => {
+    const model = inspectShadowedResponseTypes("safe", "ambient");
+    const operation = model.operations.find(
+      (item) => item.id === "CanonicalObservableController.get",
+    );
+
+    expect(operation?.responses[0]?.inference.status).toBe("unresolved");
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts an installed rxjs Observable with local augmentation", () => {
+    const model = inspectShadowedResponseTypes("safe", "augmented");
+    const operation = model.operations.find(
+      (item) => item.id === "CanonicalObservableController.get",
+    );
+
+    expect(operation?.responses[0]?.inference.status).toBe("inferred");
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(false);
+  });
+
+  it.each([
+    "AnonymousController.indexed",
+    "AnonymousController.callable",
+    "AnonymousController.withMethod",
+    "AnonymousController.openRecord",
+    "AnonymousController.undefinedRoot",
+  ])("keeps unsafe anonymous root %s unresolved in safe mode", (operationId) => {
+    const model = inspectAnonymousResponse("safe");
+    const operation = model.operations.find((item) => item.id === operationId);
+
+    expect(operation?.responses[0]?.inference.status).toBe("unresolved");
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
+    expect(Object.keys(model.schemas)).toEqual([
+      "PayloadDto",
+      "OpenPassthrough",
+      "ClosedStrict",
+      "ResponseGeneratedUnsafe",
+    ]);
+  });
+
+  it.each([
+    "AnonymousController.nestedRecord",
+    "AnonymousController.nestedUnknown",
+    "AnonymousController.nestedEmpty",
+    "AnonymousController.nestedComplexUnion",
+    "AnonymousController.nestedLibrary",
+  ])("rejects incomplete nested shape %s without generated schemas", (operationId) => {
+    const model = inspectAnonymousResponse("safe");
+    const operation = model.operations.find((item) => item.id === operationId);
+
+    expect(operation?.responses[0]?.inference.status).toBe("unresolved");
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
+    expect(Object.keys(model.schemas)).toEqual([
+      "PayloadDto",
+      "OpenPassthrough",
+      "ClosedStrict",
+      "ResponseGeneratedUnsafe",
+    ]);
+  });
+
+  it("rejects a discovered DTO class nested in a safe anonymous response", () => {
+    const model = inspectAnonymousResponse("safe");
+    const operation = model.operations.find(
+      (item) => item.id === "AnonymousController.nestedDiscoveredClass",
+    );
+
+    expect(operation?.responses[0]?.inference.status).toBe("unresolved");
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
+  });
+
+  it("infers a nested named object type alias in a safe anonymous response", () => {
+    const model = inspectAnonymousResponse("safe", undefined, true);
+    const operation = model.operations.find(
+      (item) => item.id === "AnonymousController.nestedObjectAlias",
+    );
+
+    expect(operation?.responses[0]).toMatchObject({
+      status: 200,
+      inference: { status: "inferred" },
+      schema: {
+        kind: "inline",
+        schema: {
+          type: "object",
+          properties: {
+            data: { $ref: "#/components/schemas/NestedObjectAlias" },
+          },
+        },
+      },
+    });
+    expect(model.schemas.NestedObjectAlias).toMatchObject({
+      properties: {
+        code: { type: { kind: "primitive", type: "string" } },
+      },
+    });
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects generic schema references in safe anonymous responses", () => {
+    const model = inspectAnonymousResponse("safe", undefined, false, true);
+
+    for (const operationId of [
+      "AnonymousController.genericInterfaceString",
+      "AnonymousController.genericInterfaceNumber",
+      "AnonymousController.genericAliasString",
+      "AnonymousController.genericAliasNumber",
+    ]) {
+      const operation = model.operations.find((item) => item.id === operationId);
+      expect(operation?.responses[0]?.inference).toMatchObject({
+        status: "unresolved",
+        reason: "Anonymous response shape is not closed enough for safe inference",
+      });
+      expect(operation?.responses[0]?.schema).toBeUndefined();
+      expect(
+        operation?.diagnostics.some(
+          (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+        ),
+      ).toBe(true);
+    }
+
+    expect(model.schemas.ResponseBox).toBeUndefined();
+    expect(model.schemas.ResponseEnvelope).toBeUndefined();
+
+    for (const [operationId, schemaName, primitive] of [
+      ["AnonymousController.monomorphicInterfaceAlias", "StringBox", "string"],
+      ["AnonymousController.monomorphicTypeAlias", "NumberEnvelope", "number"],
+    ] as const) {
+      const operation = model.operations.find((item) => item.id === operationId);
+      expect(operation?.responses[0]).toMatchObject({
+        inference: { status: "inferred" },
+        schema: {
+          kind: "inline",
+          schema: {
+            properties: {
+              data: { $ref: `#/components/schemas/${schemaName}` },
+            },
+          },
+        },
+      });
+      expect(model.schemas[schemaName]).toMatchObject({
+        properties: {
+          value: { type: { kind: "primitive", type: primitive } },
+        },
+      });
+    }
+  });
+
+  it("rejects an open discovered Zod component but accepts a strict one", () => {
+    const model = inspectAnonymousResponse("safe");
+    const openOperation = model.operations.find(
+      (item) => item.id === "AnonymousController.zodPassthrough",
+    );
+    const strictOperation = model.operations.find(
+      (item) => item.id === "AnonymousController.zodStrict",
+    );
+
+    expect(model.schemas.OpenPassthrough).toMatchObject({
+      openapi: { additionalProperties: true },
+    });
+    expect(model.schemas.ClosedStrict).toMatchObject({
+      openapi: { additionalProperties: false },
+    });
+    expect(openOperation?.responses[0]?.inference.status).toBe("unresolved");
+    expect(
+      openOperation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
+    expect(strictOperation?.responses[0]).toMatchObject({
+      inference: { status: "inferred" },
+      schema: {
+        kind: "inline",
+        schema: {
+          properties: {
+            data: { $ref: "#/components/schemas/ClosedStrict" },
+          },
+        },
+      },
+    });
+    expect(
+      strictOperation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects a later anonymous response referencing an incomplete generated component", () => {
+    const model = inspectAnonymousResponse("safe");
+    const earlierOperation = model.operations.find(
+      (item) => item.id === "AnonymousController.generatedUnsafeFirst",
+    );
+    const laterOperation = model.operations.find(
+      (item) => item.id === "AnonymousController.generatedUnsafeLater",
+    );
+
+    expect(earlierOperation?.responses[0]?.inference.status).toBe("inferred");
+    expect(model.schemas.ResponseGeneratedUnsafe).toMatchObject({
+      properties: { extra: { type: { kind: "unknown" } } },
+    });
+    expect(laterOperation?.responses[0]?.inference.status).toBe("unresolved");
+    expect(
+      laterOperation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    "AnonymousController.manual",
+    "AnonymousController.manualAlias",
+    "AnonymousController.manualArray",
+    "AnonymousController.manualNullable",
+    "AnonymousController.manualComplexUnion",
+    "AnonymousController.transformed",
+    "AnonymousController.transformedArray",
+    "AnonymousController.filtered",
+    "AnonymousController.serialized",
+    "AnonymousController.redirected",
+    "AnonymousController.rendered",
+    "AnonymousController.aliasedTransform",
+    "AnonymousController.namespaceFilter",
+    "AnonymousController.aliasedManual",
+    "AnonymousController.namespaceManual",
+    "AnonymousController.barrelTransform",
+    "InterceptedController.get",
+    "FilteredController.get",
+    "SerializedController.get",
+  ])("keeps response boundary %s unresolved in safe mode", (operationId) => {
+    const model = inspectAnonymousResponse("safe");
+    const operation = model.operations.find((item) => item.id === operationId);
+
+    expect(operation?.responses[0]?.inference.status).toBe("unresolved");
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
+    expect(operation?.responses[0]?.inference.reason).toBe(
+      "Anonymous response crosses a manual or transformed response boundary",
+    );
+  });
+
+  it("rejects mixed root unions with anonymous array branches only in safe mode", () => {
+    const safeModel = inspectAnonymousResponse("safe");
+    const operation = safeModel.operations.find(
+      (item) => item.id === "AnonymousController.mixedUnionArray",
+    );
+    const manualOperation = safeModel.operations.find(
+      (item) => item.id === "AnonymousController.manualMixedUnionArray",
+    );
+
+    expect(operation?.responses[0]?.inference).toMatchObject({
+      status: "unresolved",
+      reason: "Anonymous response shape is not closed enough for safe inference",
+    });
+    expect(manualOperation?.responses[0]?.inference).toMatchObject({
+      status: "unresolved",
+      reason: "Anonymous response crosses a manual or transformed response boundary",
+    });
+
+    for (const anonymousObjects of [undefined, "off"] as const) {
+      const legacyModel = inspectAnonymousResponse(anonymousObjects);
+      for (const operationId of [
+        "AnonymousController.mixedUnionArray",
+        "AnonymousController.manualMixedUnionArray",
+      ]) {
+        expect(
+          legacyModel.operations.find((item) => item.id === operationId)?.responses[0]
+            ?.inference.status,
+        ).toBe("inferred");
+      }
+    }
+  });
+
+  it.each([
+    "UnrelatedDecoratorController.variable",
+    "UnrelatedDecoratorController.property",
+    "UnrelatedDecoratorController.ambientTransform",
+    "UnrelatedDecoratorController.localManual",
+    "UnrelatedDecoratorController.importedTransform",
+    "UnrelatedDecoratorController.importedManual",
+    "UnrelatedDecoratorController.shadowedStar",
+    "AnonymousController.nestedFilter",
+  ])("infers a closed response with unrelated decorator %s", (operationId) => {
+    const model = inspectAnonymousResponse("safe");
+    const operation = model.operations.find((item) => item.id === operationId);
+
+    expect(operation?.responses[0]?.inference.status).toBe("inferred");
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps an explicit Swagger success response authoritative in safe mode", () => {
+    const model = inspectAnonymousResponse("safe");
+    const operation = model.operations.find(
+      (item) => item.id === "AnonymousController.swagger",
+    );
+
+    expect(operation?.responses).toEqual([
+      expect.objectContaining({
+        status: 200,
+        schema: { kind: "inline", schema: { type: "string" } },
+        inference: { status: "overridden" },
+      }),
+    ]);
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps a config response override authoritative in safe mode", () => {
+    const model = inspectAnonymousResponse("safe", {
+      operations: {
+        "AnonymousController.manual": {
+          responses: {
+            "200": {
+              description: "Configured response.",
+              content: {
+                "application/json": { schema: { type: "boolean" } },
+              },
+            },
+          },
+        },
+      },
+    });
+    const operation = model.operations.find(
+      (item) => item.id === "AnonymousController.manual",
+    );
+
+    expect(operation?.responses).toEqual([
+      expect.objectContaining({
+        status: 200,
+        description: "Configured response.",
+        inference: { status: "overridden" },
+        openapi: expect.objectContaining({
+          description: "Configured response.",
+          content: {
+            "application/json": {
+              schema: { type: "boolean" },
+            },
+          },
+        }),
+      }),
+    ]);
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(false);
+  });
+});

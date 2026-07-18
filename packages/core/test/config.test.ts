@@ -169,4 +169,48 @@ describe("config validation", () => {
 
     expect(() => validateConfig(config)).not.toThrow();
   });
+
+  it.each(["off", "safe"] as const)(
+    "accepts inference.responses.anonymousObjects=%s",
+    (anonymousObjects) => {
+      expect(() =>
+        validateConfig({
+          inference: { responses: { anonymousObjects } },
+        }),
+      ).not.toThrow();
+    },
+  );
+
+  it("rejects unsupported anonymous response inference modes", () => {
+    expect(() =>
+      validateConfig({
+        inference: {
+          responses: { anonymousObjects: "aggressive" },
+        },
+      } as any),
+    ).toThrow(/inference\.responses\.anonymousObjects.*off.*safe/);
+  });
+
+  it("rejects bigint anonymous response inference modes with a config error", () => {
+    expect(() =>
+      validateConfig({
+        inference: {
+          responses: { anonymousObjects: 1n },
+        },
+      } as any),
+    ).toThrow(/inference\.responses\.anonymousObjects.*off.*safe/);
+  });
+
+  it("rejects cyclic anonymous response inference modes with a config error", () => {
+    const anonymousObjects: { self?: unknown } = {};
+    anonymousObjects.self = anonymousObjects;
+
+    expect(() =>
+      validateConfig({
+        inference: {
+          responses: { anonymousObjects },
+        },
+      } as any),
+    ).toThrow(/inference\.responses\.anonymousObjects.*off.*safe/);
+  });
 });

@@ -88,10 +88,44 @@ export function validateConfig(config: SpecordConfigV1): void {
       );
     }
   }
+
+  const inference = isObject(config.inference) ? config.inference : undefined;
+  const responses = isObject(inference?.responses)
+    ? inference.responses
+    : undefined;
+  const anonymousObjects = responses?.anonymousObjects;
+
+  if (
+    anonymousObjects !== undefined &&
+    anonymousObjects !== "off" &&
+    anonymousObjects !== "safe"
+  ) {
+    throw new Error(
+      `[specord] Config error in inference.responses.anonymousObjects: ` +
+        `expected "off" or "safe", got ${formatConfigValue(anonymousObjects)}`,
+    );
+  }
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function formatConfigValue(value: unknown): string {
+  try {
+    const serialized = JSON.stringify(value);
+    if (serialized !== undefined) {
+      return serialized;
+    }
+  } catch {
+    // Fall through to string coercion for values JSON cannot serialize.
+  }
+
+  try {
+    return String(value);
+  } catch {
+    return "<unprintable>";
+  }
 }
 
 /** CLI flags that can override config values. */

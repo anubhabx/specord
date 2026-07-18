@@ -182,13 +182,23 @@ type DiagnosticCode =
 
 - Unmapped guard-derived auth semantics when no Swagger or configured security mapping exists.
 - Return type shape when originating service/data source is `any`.
-- Anonymous object literal response shapes.
+- Anonymous object literal response shapes, except for the narrow safe-mode rule below.
 - Interceptor, serializer, exception-filter transformed output.
 - `@Res()` / `@Response()` manual response handling.
 - Complex generics, conditional types, and polymorphic unions.
 - Unknown/custom decorators without config mapping.
 
 When uncertain, extractor MUST emit incomplete-but-valid model data and at least one diagnostic.
+
+### Safe anonymous response inference (MUST remain opt-in)
+
+`inference.responses.anonymousObjects` defaults to `"off"`. An omitted `inference` section, omitted `responses` section, omitted `anonymousObjects`, or explicit `"off"` MUST leave anonymous object literal response shapes unresolved with the existing warning and deterministic output. The canonical fixture's default anonymous response remains unresolved, and default snapshots MUST remain unchanged.
+
+When `anonymousObjects` is `"safe"`, an anonymous response MAY be inferred only when its root eligibility, route eligibility, and complete whole-shape reduction all pass. Canonical `Promise<T>` and installed `rxjs` `Observable<T>` response containers MUST be identified from compiler-resolved type identity rather than source spelling, including import aliases, namespace-qualified references, and instantiated type aliases; project-local lookalikes MUST remain unresolved. The root MUST be an anonymous, non-aliased object with at least one non-method property; it MUST have no index, call, or construct signatures. A union containing `null` and exactly one non-nullish anonymous branch MAY apply these root checks to that branch and MUST preserve `null` in the emitted schema; a root containing `undefined` or `void` does not gain this eligibility. A root union containing a direct anonymous object branch or an anonymous object beneath an array branch plus any other active branch MUST remain unresolved in safe mode and MUST still obey the route-boundary gate, even when default/off legacy inference can emit that union as `oneOf`. The route MUST have no `@Res()` / `@Response()` parameter and no visible response-boundary marker (`@UseInterceptors`, `@SerializeOptions`, `@UseFilters`, `@Redirect`, or `@Render`) on the handler or controller. The same route and complete whole-shape gates MUST apply before retaining an existing array response whose item graph contains an anonymous object, so array wrappers cannot bypass a manual or transformed boundary or retain an incomplete anonymous item.
+
+The complete shape MAY contain primitives, same-primitive literals or literal enums, `Date`, arrays, nested closed objects, valid discovered or response-generated schema references whose selected interface or object-type-alias declaration is non-generic, monomorphically named aliases to specialized generic objects, and nullable forms of those supported shapes. `undefined` MAY be discarded only at an object-property boundary that the emitted schema preserves as optional; an `undefined` branch in an array item or other value position MUST make the safe response unresolved. A reference whose selected schema declaration itself has generic type parameters MUST remain unresolved rather than sharing one bare component name across instantiations. The shape MUST also be rejected as unresolved when any branch contains a record or index signature; `any`, `unknown`, or `never`; an empty shape; a call, construct, or method member; a class, framework response, stream, or manual response; a visible transform; a complex union or conditional type; or a dangling reference. The extractor MUST NOT emit a partial schema. Component schemas generated while attempting a rejected anonymous response MUST be discarded.
+
+Explicit Swagger 2xx responses MUST continue to take precedence over source inference. Operation response overrides remain authoritative; when an override resolves a response uncertainty, it removes only that operation's directly resolved response diagnostic. Accepted safe-mode responses use inferred state; rejected candidates retain the existing unresolved diagnostic and deterministic ordering.
 
 ## Diagnostic catalog (v1 minimum)
 
@@ -251,6 +261,11 @@ type SpecordConfigV1 = {
   routing?: {
     globalPrefix?: string;
     versioning?: { strategy: "uri" | "header" | "media-type"; value?: string };
+  };
+  inference?: {
+    responses?: {
+      anonymousObjects?: "off" | "safe";
+    };
   };
   securitySchemes?: Record<string, OpenApiSecuritySchemeObject>;
   operations?: Record<

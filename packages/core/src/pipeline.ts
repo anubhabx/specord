@@ -159,6 +159,10 @@ export function inspect(config: ResolvedConfig): InspectionModel {
         checker,
         root,
         schemas,
+        {
+          inferSafeAnonymousObjects:
+            userConfig.inference?.responses?.anonymousObjects === "safe",
+        },
       );
       for (const [schemaName, responseSchema] of Object.entries(responseSchemas)) {
         if (!schemas[schemaName]) {
