@@ -3,6 +3,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SpecordConfigV1 } from "@specord/types";
 import { inspect, resolveConfig } from "../src/index.ts";
+import { isCompleteOpenApiSchema } from "../src/extractors/response-extractor.ts";
 import {
   cleanupTempProjects,
   createTempProject,
@@ -349,11 +350,22 @@ function inspectUnresolvedCanonicalDecorators() {
   );
 
   fs.writeFileSync(
+    path.join(srcRoot, "unresolved-response-subpath.ts"),
+    "export { UseFilters as SubpathFilter } from '@nestjs/common/decorators/core/use-filters.decorator';",
+  );
+
+  fs.writeFileSync(
+    path.join(srcRoot, "unresolved-response-multihop.ts"),
+    "export { SubpathFilter as MultiHopFilter } from './unresolved-response-subpath';",
+  );
+
+  fs.writeFileSync(
     path.join(srcRoot, "unresolved.controller.ts"),
     [
       "import { UseFilters as ImportedTransform, Response as ImportedResponse } from '@nestjs/common';",
       "import * as NestCommon from '@nestjs/common';",
       "import { FilterAlias } from './unresolved-response-barrel';",
+      "import { MultiHopFilter } from './unresolved-response-multihop';",
       "declare function Controller(path?: string): ClassDecorator;",
       "declare function Get(path?: string): MethodDecorator;",
       "@Controller('unresolved-decorators')",
@@ -375,6 +387,11 @@ function inspectUnresolvedCanonicalDecorators() {
       "  @Get('named-barrel')",
       "  @FilterAlias()",
       "  namedBarrel(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('multihop-subpath')",
+      "  @MultiHopFilter()",
+      "  multiHopSubpath(): Promise<{ ok: boolean }> {",
       "    throw new Error('not implemented');",
       "  }",
       "}",
@@ -499,6 +516,27 @@ function inspectShadowedResponseTypes(
 }
 
 describe("anonymous response inference", () => {
+  it("revalidates nullable object and array schema completeness", () => {
+    const isComplete = (schema: Parameters<typeof isCompleteOpenApiSchema>[0]) =>
+      isCompleteOpenApiSchema(schema, {}, {}, new Set());
+
+    expect(isComplete({ type: ["object", "null"] })).toBe(false);
+    expect(
+      isComplete({
+        type: ["object", "null"],
+        properties: { ok: { type: "boolean" } },
+      }),
+    ).toBe(true);
+    expect(isComplete({ type: ["array", "null"] })).toBe(false);
+    expect(
+      isComplete({
+        type: ["array", "null"],
+        items: { type: "string" },
+      }),
+    ).toBe(true);
+    expect(isComplete({ type: ["string", "null"] })).toBe(true);
+  });
+
   it("infers a closed anonymous response object in safe mode", () => {
     const model = inspectAnonymousResponse("safe");
     const operation = model.operations.find(
@@ -567,6 +605,7 @@ describe("anonymous response inference", () => {
       "UnresolvedDecoratorController.namespace",
       "UnresolvedDecoratorController.manual",
       "UnresolvedDecoratorController.namedBarrel",
+      "UnresolvedDecoratorController.multiHopSubpath",
     ]) {
       const operation = model.operations.find((item) => item.id === operationId);
       expect(operation?.responses[0]?.inference.status).toBe("unresolved");
@@ -822,7 +861,7 @@ describe("anonymous response inference", () => {
       ),
     ).toBe(true);
     expect(operation?.responses[0]?.inference.reason).toBe(
-      "Anonymous response shape is not closed enough for safe inference",
+      "Anonymous response crosses a manual or transformed response boundary",
     );
   });
 
@@ -891,7 +930,14 @@ describe("anonymous response inference", () => {
         status: 200,
         description: "Configured response.",
         inference: { status: "overridden" },
-        openapi: expect.objectContaining({ description: "Configured response." }),
+        openapi: expect.objectContaining({
+          description: "Configured response.",
+          content: {
+            "application/json": {
+              schema: { type: "boolean" },
+            },
+          },
+        }),
       }),
     ]);
     expect(

@@ -516,9 +516,10 @@ function inferReturnType(
   const safeAnonymousCandidate =
     options.inferSafeAnonymousObjects === true &&
     isAnonymousObjectType(resolved.type);
+  const safeAnonymousRouteAllowed =
+    safeAnonymousCandidate && routeAllowsSafeAnonymousInference(route, checker);
   const safeAnonymousRoot =
-    safeAnonymousCandidate &&
-    routeAllowsSafeAnonymousInference(route, checker) &&
+    safeAnonymousRouteAllowed &&
     isSafeAnonymousRootType(resolved.type, checker) &&
     isSafeAnonymousTypeBranch(
       resolved.type,
@@ -546,10 +547,12 @@ function inferReturnType(
     // Check if it's an anonymous object literal return
     const typeString = checker.typeToString(resolved.type);
     return {
-      schemas: generatedSchemas,
+      schemas: safeAnonymousCandidate ? {} : generatedSchemas,
       unresolved: true,
       reason: safeAnonymousCandidate
-        ? "Anonymous response shape is not closed enough for safe inference"
+        ? safeAnonymousRouteAllowed
+          ? "Anonymous response shape is not closed enough for safe inference"
+          : "Anonymous response crosses a manual or transformed response boundary"
         : `Return type "${typeString}" is not a reducible exported shape`,
     };
   }
@@ -778,7 +781,7 @@ function isCompleteResponseSchemaModel(
   );
 }
 
-function isCompleteOpenApiSchema(
+export function isCompleteOpenApiSchema(
   schema: OpenApiSchemaObject,
   discoveredSchemas: Record<string, SchemaModel>,
   generatedSchemas: Record<string, SchemaModel>,
@@ -848,7 +851,13 @@ function isCompleteOpenApiSchema(
   if (typeof value.type === "string") return value.type !== "object";
   if (Array.isArray(value.type)) {
     const nonNullTypes = value.type.filter((entry) => entry !== "null");
-    return nonNullTypes.length === 1 && value.type.includes("null");
+    if (nonNullTypes.length !== 1 || !value.type.includes("null")) return false;
+    return isCompleteOpenApiSchema(
+      { ...schema, type: nonNullTypes[0] } as OpenApiSchemaObject,
+      discoveredSchemas,
+      generatedSchemas,
+      visitingSchemas,
+    );
   }
 
   return false;
