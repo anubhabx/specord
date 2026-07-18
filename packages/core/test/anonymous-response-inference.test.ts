@@ -87,6 +87,14 @@ function inspectAnonymousResponse(
   );
 
   fs.writeFileSync(
+    path.join(srcRoot, "shadowed-response-decorator-barrel.ts"),
+    [
+      "export * from '@nestjs/common';",
+      "export function UseFilters(): MethodDecorator { return () => undefined; }",
+    ].join("\n"),
+  );
+
+  fs.writeFileSync(
     path.join(srcRoot, "anonymous.controller.ts"),
     [
       "declare function Controller(path?: string): ClassDecorator;",
@@ -266,6 +274,7 @@ function inspectAnonymousResponse(
     path.join(srcRoot, "unrelated-decorator.controller.ts"),
     [
       "import { UseFilters as ImportedUseFilters, Response as ImportedResponse } from './unrelated-response-decorators';",
+      "import { UseFilters as ShadowedUseFilters } from './shadowed-response-decorator-barrel';",
       "declare function Controller(path?: string): ClassDecorator;",
       "declare function Get(path?: string): MethodDecorator;",
       "declare function UseInterceptors(): MethodDecorator;",
@@ -304,6 +313,11 @@ function inspectAnonymousResponse(
       "  importedManual(@ImportedResponse() response: unknown): Promise<{ ok: boolean }> {",
       "    throw new Error('not implemented');",
       "  }",
+      "  @Get('shadowed-star')",
+      "  @ShadowedUseFilters()",
+      "  shadowedStar(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
       "}",
     ].join("\n"),
   );
@@ -330,10 +344,16 @@ function inspectUnresolvedCanonicalDecorators() {
   const srcRoot = path.join(projectRoot, "src");
 
   fs.writeFileSync(
+    path.join(srcRoot, "unresolved-response-barrel.ts"),
+    "export { UseFilters as FilterAlias } from '@nestjs/common';",
+  );
+
+  fs.writeFileSync(
     path.join(srcRoot, "unresolved.controller.ts"),
     [
       "import { UseFilters as ImportedTransform, Response as ImportedResponse } from '@nestjs/common';",
       "import * as NestCommon from '@nestjs/common';",
+      "import { FilterAlias } from './unresolved-response-barrel';",
       "declare function Controller(path?: string): ClassDecorator;",
       "declare function Get(path?: string): MethodDecorator;",
       "@Controller('unresolved-decorators')",
@@ -350,6 +370,11 @@ function inspectUnresolvedCanonicalDecorators() {
       "  }",
       "  @Get('manual')",
       "  manual(@ImportedResponse() response: unknown): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('named-barrel')",
+      "  @FilterAlias()",
+      "  namedBarrel(): Promise<{ ok: boolean }> {",
       "    throw new Error('not implemented');",
       "  }",
       "}",
@@ -432,6 +457,7 @@ describe("anonymous response inference", () => {
       "UnresolvedDecoratorController.named",
       "UnresolvedDecoratorController.namespace",
       "UnresolvedDecoratorController.manual",
+      "UnresolvedDecoratorController.namedBarrel",
     ]) {
       const operation = model.operations.find((item) => item.id === operationId);
       expect(operation?.responses[0]?.inference.status).toBe("unresolved");
@@ -631,6 +657,7 @@ describe("anonymous response inference", () => {
     "UnrelatedDecoratorController.localManual",
     "UnrelatedDecoratorController.importedTransform",
     "UnrelatedDecoratorController.importedManual",
+    "UnrelatedDecoratorController.shadowedStar",
     "AnonymousController.nestedFilter",
   ])("infers a closed response with unrelated decorator %s", (operationId) => {
     const model = inspectAnonymousResponse("safe");

@@ -153,18 +153,20 @@ function resolveDecoratorSymbol(
 
   while (current) {
     hasNestCommonProvenance ||= symbolHasNestCommonProvenance(current);
-    nestCommonImportedName ??= nestCommonImportedNameForSymbol(current);
+    nestCommonImportedName ??= nestCommonImportedNameForSymbol(current, checker);
     if (!(current.flags & ts.SymbolFlags.Alias)) break;
-    if (seen.has(current)) {
-      return {
-        followedAlias,
-        hasNestCommonProvenance,
-        nestCommonImportedName,
-      };
-    }
+    if (seen.has(current)) break;
     seen.add(current);
     followedAlias = true;
     current = checker.getAliasedSymbol(current);
+  }
+
+  const terminalName = current?.getName();
+  if (
+    nestCommonImportedName !== undefined &&
+    (terminalName === undefined || terminalName === "unknown")
+  ) {
+    hasNestCommonProvenance = true;
   }
 
   return {
@@ -179,12 +181,182 @@ function symbolHasNestCommonProvenance(symbol: ts.Symbol): boolean {
   return symbol.declarations?.some(declarationHasNestCommonProvenance) === true;
 }
 
-function nestCommonImportedNameForSymbol(symbol: ts.Symbol): string | undefined {
+function nestCommonImportedNameForSymbol(
+  symbol: ts.Symbol,
+  checker: ts.TypeChecker,
+  seenSymbols = new Set<ts.Symbol>(),
+  seenModuleExports = new Map<ts.Symbol, Set<string>>(),
+): string | undefined {
+  if (seenSymbols.has(symbol)) return undefined;
+  seenSymbols.add(symbol);
+
   for (const declaration of symbol.declarations ?? []) {
     if (!declarationHasNestCommonProvenance(declaration)) continue;
     if (ts.isImportSpecifier(declaration) || ts.isExportSpecifier(declaration)) {
       return (declaration.propertyName ?? declaration.name).text;
     }
+  }
+
+  for (const declaration of symbol.declarations ?? []) {
+    if (ts.isImportSpecifier(declaration)) {
+      const importDeclaration = enclosingImportDeclaration(declaration);
+      if (!importDeclaration || !ts.isStringLiteral(importDeclaration.moduleSpecifier)) {
+        continue;
+      }
+      const moduleSymbol = checker.getSymbolAtLocation(
+        importDeclaration.moduleSpecifier,
+      );
+      if (!moduleSymbol) continue;
+      const importedName = (declaration.propertyName ?? declaration.name).text;
+      const resolvedName = nestCommonExportedNameFromModule(
+        moduleSymbol,
+        importedName,
+        checker,
+        seenSymbols,
+        seenModuleExports,
+      );
+      if (resolvedName) return resolvedName;
+    }
+
+    if (ts.isExportSpecifier(declaration)) {
+      const exportDeclaration = enclosingExportDeclaration(declaration);
+      const sourceName = (declaration.propertyName ?? declaration.name).text;
+      if (
+        exportDeclaration?.moduleSpecifier &&
+        ts.isStringLiteral(exportDeclaration.moduleSpecifier)
+      ) {
+        const moduleSymbol = checker.getSymbolAtLocation(
+          exportDeclaration.moduleSpecifier,
+        );
+        if (!moduleSymbol) continue;
+        const resolvedName = nestCommonExportedNameFromModule(
+          moduleSymbol,
+          sourceName,
+          checker,
+          seenSymbols,
+          seenModuleExports,
+        );
+        if (resolvedName) return resolvedName;
+        continue;
+      }
+
+      const localSymbol = checker.getSymbolAtLocation(
+        declaration.propertyName ?? declaration.name,
+      );
+      if (!localSymbol) continue;
+      const resolvedName = nestCommonImportedNameForSymbol(
+        localSymbol,
+        checker,
+        seenSymbols,
+        seenModuleExports,
+      );
+      if (resolvedName) return resolvedName;
+    }
+  }
+  return undefined;
+}
+
+function nestCommonExportedNameFromModule(
+  moduleSymbol: ts.Symbol,
+  exportedName: string,
+  checker: ts.TypeChecker,
+  seenSymbols: Set<ts.Symbol>,
+  seenModuleExports: Map<ts.Symbol, Set<string>>,
+): string | undefined {
+  const seenNames = seenModuleExports.get(moduleSymbol) ?? new Set<string>();
+  if (seenNames.has(exportedName)) return undefined;
+  seenNames.add(exportedName);
+  seenModuleExports.set(moduleSymbol, seenNames);
+
+  for (const declaration of moduleSymbol.declarations ?? []) {
+    if (!ts.isSourceFile(declaration)) continue;
+    for (const statement of declaration.statements) {
+      if (!ts.isExportDeclaration(statement)) continue;
+
+      if (statement.exportClause && ts.isNamedExports(statement.exportClause)) {
+        for (const specifier of statement.exportClause.elements) {
+          if (specifier.name.text !== exportedName) continue;
+          const sourceName = (specifier.propertyName ?? specifier.name).text;
+          if (
+            statement.moduleSpecifier &&
+            ts.isStringLiteral(statement.moduleSpecifier)
+          ) {
+            if (isNestCommonModuleSpecifier(statement.moduleSpecifier.text)) {
+              return sourceName;
+            }
+            const nextModule = checker.getSymbolAtLocation(
+              statement.moduleSpecifier,
+            );
+            if (!nextModule) continue;
+            const resolvedName = nestCommonExportedNameFromModule(
+              nextModule,
+              sourceName,
+              checker,
+              seenSymbols,
+              seenModuleExports,
+            );
+            if (resolvedName) return resolvedName;
+            continue;
+          }
+
+          const localSymbol = checker.getSymbolAtLocation(
+            specifier.propertyName ?? specifier.name,
+          );
+          if (!localSymbol) continue;
+          const resolvedName = nestCommonImportedNameForSymbol(
+            localSymbol,
+            checker,
+            seenSymbols,
+            seenModuleExports,
+          );
+          if (resolvedName) return resolvedName;
+        }
+        continue;
+      }
+
+      if (
+        !statement.exportClause &&
+        statement.moduleSpecifier &&
+        ts.isStringLiteral(statement.moduleSpecifier)
+      ) {
+        if (isNestCommonModuleSpecifier(statement.moduleSpecifier.text)) {
+          return exportedName;
+        }
+        const nextModule = checker.getSymbolAtLocation(statement.moduleSpecifier);
+        if (!nextModule) continue;
+        const resolvedName = nestCommonExportedNameFromModule(
+          nextModule,
+          exportedName,
+          checker,
+          seenSymbols,
+          seenModuleExports,
+        );
+        if (resolvedName) return resolvedName;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function enclosingImportDeclaration(
+  node: ts.Node,
+): ts.ImportDeclaration | undefined {
+  let current: ts.Node | undefined = node.parent;
+  while (current && !ts.isSourceFile(current)) {
+    if (ts.isImportDeclaration(current)) return current;
+    current = current.parent;
+  }
+  return undefined;
+}
+
+function enclosingExportDeclaration(
+  node: ts.Node,
+): ts.ExportDeclaration | undefined {
+  let current: ts.Node | undefined = node.parent;
+  while (current && !ts.isSourceFile(current)) {
+    if (ts.isExportDeclaration(current)) return current;
+    current = current.parent;
   }
   return undefined;
 }
