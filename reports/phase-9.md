@@ -2,7 +2,7 @@
 
 **Phase:** 9 - Safe anonymous response inference
 **Date:** 2026-07-18
-**Status:** Healthy for the implemented acceptance scope and final local verification. Default V1 output is unchanged; opt-in safe mode reduced unresolved production API surface responses from 78 to 41 while preserving route parity and valid OpenAPI. Final safety review fixes cover canonical Nest decorator provenance through aliases and local barrels, compiler-semantic `Promise`/`Observable` container resolution through aliases and qualified references, lookalike rejection, nullable anonymous roots, undefined-root rejection, direct anonymous root-union rejection, explicit-export shadowing, recursive discovered/generated component validation, nullable-schema completeness, nested and top-level array item metadata, top-level anonymous-array route and whole-shape gating with mixed-union compatibility, and redirect/render boundaries. Pull request #4 remains open and unmerged; hosted checks and resolved review threads are mandatory delivery gates.
+**Status:** Healthy for the implemented acceptance scope and final local verification. Default V1 output is unchanged; opt-in safe mode reduced unresolved production API surface responses from 78 to 41 while preserving route parity and valid OpenAPI. Final safety review fixes cover canonical Nest decorator provenance through aliases and local barrels, compiler-semantic `Promise`/`Observable` container resolution through aliases and qualified references, lookalike rejection, nullable anonymous roots, undefined-root rejection, direct and array-wrapped anonymous root-union rejection, explicit-export shadowing, recursive discovered/generated component validation, nullable-schema completeness, nested and top-level array item metadata, top-level anonymous-array route and whole-shape gating, and redirect/render boundaries. Pull request #4 remains open and unmerged; hosted checks and resolved review threads are mandatory delivery gates.
 
 ---
 
@@ -18,7 +18,7 @@ Measured against the production server checkout, safe mode preserved 107 paths a
 | --- | --- |
 | Configuration | Optional `inference.responses.anonymousObjects` policy with runtime validation for `"off"` and `"safe"` |
 | Extraction | Closed anonymous response inference behind the opt-in policy |
-| Safety boundary | Whole-shape rejection for index signatures, call/construct signatures, methods, classes, records, unknown members, direct anonymous root unions, complex nested unions, dangling or incomplete component references, non-canonical `Date`/`Promise`/`Observable` identities, manual responses, visible response transforms, redirects, and rendered views from canonical `@nestjs/common` decorators; compiler-semantic container unwrapping supports canonical aliases and qualified references without admitting project-local lookalikes; route and whole-shape gates also cover nullable roots, rejected direct root unions, and array-wrapped anonymous objects, while accepted nested arrays preserve enum, format, and nullability metadata |
+| Safety boundary | Whole-shape rejection for index signatures, call/construct signatures, methods, classes, records, unknown members, direct and array-wrapped anonymous root unions, complex nested unions, dangling or incomplete component references, non-canonical `Date`/`Promise`/`Observable` identities, manual responses, visible response transforms, redirects, and rendered views from canonical `@nestjs/common` decorators; compiler-semantic container unwrapping supports canonical aliases and qualified references without admitting project-local lookalikes; route and whole-shape gates also cover nullable roots and array-wrapped anonymous objects, while accepted nested arrays preserve enum, format, and nullability metadata |
 | Precedence | Swagger success responses and operation response overrides remain authoritative |
 | Tests and docs | Focused response/config coverage, cyclic-config and controller-transform hardening, nullable-root and semantic-container regressions, normative contract, and configuration guidance |
 
@@ -27,10 +27,10 @@ Measured against the production server checkout, safe mode preserved 107 paths a
 | Criterion | Status | Evidence |
 | --- | --- | --- |
 | Package builds | Pass | `@specord/types`, `@specord/core`, `@specord/openapi`, and `@specord/cli` builds passed with pnpm 10.33.4 |
-| Focused anonymous-response suite | Pass | 57/57 tests, including nullable roots, object/array undefined-root rejection, direct anonymous root-union rejection, incomplete anonymous-array rejection, top-level array metadata preservation, manual union/nullable/array boundaries, default/off preservation, mixed array-union compatibility, canonical aliased/qualified/nested/transformed containers, non-canonical lookalikes, and `PromiseLike` rejection |
+| Focused anonymous-response suite | Pass | 57/57 tests, including nullable roots, object/array undefined-root rejection, direct and array-wrapped anonymous root-union rejection, incomplete anonymous-array rejection, top-level array metadata preservation, manual union/nullable/array boundaries, default/off preservation, canonical aliased/qualified/nested/transformed containers, non-canonical lookalikes, and `PromiseLike` rejection |
 | Core regression suite | Pass | 15 files, 132 tests passed after config, transform/non-JSON-boundary, scoped anonymous-array route and whole-shape gating, direct/mixed-root-union, decorator/type-provenance, barrel-shadowing, nullable-root/schema, semantic-container, array-metadata, and component-completeness hardening |
-| Fresh uncached workspace build | Pass | `pnpm.cmd exec turbo run build --force`: 6/6 tasks, 0 cached, six packages, 5.559s |
-| Fresh uncached workspace test | Pass | `pnpm.cmd exec turbo run test --force`: 12/12 tasks, 0 cached, 22 files and 160 tests across six packages, 49.61s |
+| Fresh uncached workspace build | Pass | `pnpm.cmd exec turbo run build --force`: 6/6 tasks, 0 cached, six packages, 5.62s |
+| Fresh uncached workspace test | Pass | `pnpm.cmd exec turbo run test --force`: 12/12 tasks, 0 cached, 22 files and 160 tests across six packages, 47.573s |
 | Workspace lint coverage | Not configured | `pnpm.cmd lint` exited 0, but Turbo executed 0 tasks and warned `No tasks were executed`; this is not lint coverage |
 | Canonical snapshot and acceptance tests | Pass | 2 files, 16 tests passed |
 | Canonical inspect/generate | Pass | Both commands exited 0; canonical model remains 7 controllers, 22 paths, 27 operations, and 42 schemas |
@@ -71,15 +71,15 @@ The system can infer a complete anonymous structural response only after TypeScr
 
 In safe mode, TypeScript compiler identity unwraps canonical `Promise` and installed RxJS `Observable` containers through import aliases, namespace-qualified references, transforming type aliases, and nested containers. Project-local lookalikes, ambient RxJS spoofs, `PromiseLike`, and non-canonical containers remain unresolved. The default/off annotation path remains unchanged.
 
-The system cannot infer runtime serialization/interceptor/filter effects, manually written responses, open records/index signatures, unknown or `any` members, callable/constructable objects, classes/framework wrappers, direct multi-shape anonymous root unions, complex nested unions, or incomplete nested shapes. Those cases deliberately remain unresolved and retain their override path. Default/off keep the pre-existing root-union `oneOf` behavior; safe mode alone applies the stricter contract.
+The system cannot infer runtime serialization/interceptor/filter effects, manually written responses, open records/index signatures, unknown or `any` members, callable/constructable objects, classes/framework wrappers, direct or array-wrapped multi-shape anonymous root unions, complex nested unions, or incomplete nested shapes. Those cases deliberately remain unresolved and retain their override path. Default/off keep the pre-existing root-union `oneOf` behavior; safe mode alone applies the stricter contract.
 
 ## Codebase Metrics
 
 | Metric | Value |
 | --- | ---: |
-| Final branch commits (including report sync) | 38 |
+| Final branch commits (including report sync) | 39 |
 | Final tracked files changed | 11 |
-| Final insertions | 3,360 |
+| Final insertions | 3,405 |
 | Final deletions | 38 |
 | Current core suite | 15 files, 132 tests |
 | Fresh workspace suite | 22 files, 160 tests across six packages |
@@ -95,10 +95,10 @@ The system cannot infer runtime serialization/interceptor/filter effects, manual
 | Preserve Swagger and config precedence | Explicit API documentation remains more authoritative than structural inference |
 | Reject visible response-transform boundaries | Static return types cannot prove runtime serialization output |
 | Treat redirects, rendered views, and anonymous arrays as route-boundary cases | Canonical non-JSON decorators and array wrappers must not bypass the same safe-mode route gate |
-| Apply whole-shape validation to anonymous array graphs | An array wrapper must not retain an incomplete anonymous item or silently discard a root `undefined` branch; mixed root unions retain legacy behavior instead of being swept into the opt-in array safety gate |
+| Apply whole-shape validation to anonymous array graphs | An array wrapper must not retain an incomplete anonymous item, silently discard a root `undefined` branch, or let a mixed root union bypass the route gate; default/off retain legacy behavior |
 | Resolve only canonical response-boundary and container identities | Canonical Nest decorators are followed through imports and barrels; safe-mode `Promise` and `Observable` wrappers use compiler-resolved identity through aliases, qualified names, and nested or transforming type aliases; project-local lookalikes are rejected while installed RxJS module augmentation remains supported |
 | Treat nullable anonymous roots as one eligible branch | A root union of exactly one anonymous object plus `null` is checked whole-shape and emitted nullable; `undefined` does not silently become a nullable response |
-| Reject direct anonymous multi-shape roots only in safe mode | Direct anonymous root unions cannot inherit legacy `oneOf` emission or bypass route boundaries under the stricter policy; default/off and mixed array-union behavior remain unchanged |
+| Reject anonymous multi-shape roots only in safe mode | Direct and array-wrapped anonymous root unions cannot inherit legacy `oneOf` emission or bypass route boundaries under the stricter policy; default/off remain unchanged |
 | Validate referenced component contents recursively | A discovered or earlier-generated name is not proof that its schema is closed and complete |
 | Preserve nested array metadata only in safe mode | Accepted safe responses retain enum, format, and nullability on array items without changing default/off output |
 | Keep open records unresolved | Arbitrary keys and unknown values cannot be safely modeled as a closed object |

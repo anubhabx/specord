@@ -299,6 +299,7 @@ nestedRecord(): Promise<{ data: Record<string, unknown> }>;
 nestedUnknown(): Promise<{ data: unknown }>;
 unsafeArray(): Promise<{ data: unknown }[]>;
 undefinedArrayRoot(): Promise<{ ok: boolean }[] | undefined>;
+mixedUnionArray(): Promise<string | { ok: boolean }[]>;
 nestedEmpty(): Promise<{ data: {} }>;
 nestedComplexUnion(): Promise<{ data: { a: string } | { b: number } }>;
 nestedLibrary(): Promise<{ data: Buffer }>;

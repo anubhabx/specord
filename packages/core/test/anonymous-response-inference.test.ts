@@ -140,6 +140,10 @@ function inspectAnonymousResponse(
       "  complexUnionRoot(): Promise<{ left: string } | { right: number }> {",
       "    throw new Error('not implemented');",
       "  }",
+      "  @Get('mixed-union-array')",
+      "  mixedUnionArray(): Promise<string | { ok: boolean }[]> {",
+      "    throw new Error('not implemented');",
+      "  }",
       "  @Get('safe-array')",
       "  safeArray(): Promise<{ mode: 'draft' | 'live'; updatedAt: Date; count: number | null }[]> {",
       "    throw new Error('not implemented');",
@@ -1190,17 +1194,36 @@ describe("anonymous response inference", () => {
     );
   });
 
-  it("does not broaden the array boundary gate to mixed root unions", () => {
-    const operation = inspectAnonymousResponse("safe").operations.find(
+  it("rejects mixed root unions with anonymous array branches only in safe mode", () => {
+    const safeModel = inspectAnonymousResponse("safe");
+    const operation = safeModel.operations.find(
+      (item) => item.id === "AnonymousController.mixedUnionArray",
+    );
+    const manualOperation = safeModel.operations.find(
       (item) => item.id === "AnonymousController.manualMixedUnionArray",
     );
 
-    expect(operation?.responses[0]?.inference.status).toBe("inferred");
-    expect(
-      operation?.diagnostics.some(
-        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
-      ),
-    ).toBe(false);
+    expect(operation?.responses[0]?.inference).toMatchObject({
+      status: "unresolved",
+      reason: "Anonymous response shape is not closed enough for safe inference",
+    });
+    expect(manualOperation?.responses[0]?.inference).toMatchObject({
+      status: "unresolved",
+      reason: "Anonymous response crosses a manual or transformed response boundary",
+    });
+
+    for (const anonymousObjects of [undefined, "off"] as const) {
+      const legacyModel = inspectAnonymousResponse(anonymousObjects);
+      for (const operationId of [
+        "AnonymousController.mixedUnionArray",
+        "AnonymousController.manualMixedUnionArray",
+      ]) {
+        expect(
+          legacyModel.operations.find((item) => item.id === operationId)?.responses[0]
+            ?.inference.status,
+        ).toBe("inferred");
+      }
+    }
   });
 
   it.each([

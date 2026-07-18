@@ -532,10 +532,14 @@ function inferReturnType(
   const unsupportedAnonymousRootUnion =
     options.inferSafeAnonymousObjects === true &&
     isUnsupportedAnonymousRootUnion(resolved.type);
+  const unsupportedAnonymousArrayRootUnion =
+    options.inferSafeAnonymousObjects === true &&
+    isUnsupportedAnonymousArrayRootUnion(resolved.type, checker);
   const safeAnonymousBoundaryCandidate =
     options.inferSafeAnonymousObjects === true &&
     (anonymousRoot !== undefined ||
       unsupportedAnonymousRootUnion ||
+      unsupportedAnonymousArrayRootUnion ||
       anonymousArrayRoot);
   const safeAnonymousRouteAllowed =
     safeAnonymousBoundaryCandidate &&
@@ -547,7 +551,7 @@ function inferReturnType(
       reason: "Anonymous response crosses a manual or transformed response boundary",
     };
   }
-  if (unsupportedAnonymousRootUnion) {
+  if (unsupportedAnonymousRootUnion || unsupportedAnonymousArrayRootUnion) {
     return {
       schemas: {},
       unresolved: true,
@@ -674,6 +678,23 @@ function isUnsupportedAnonymousRootUnion(type: ts.Type): boolean {
     type.isUnion() &&
     type.types.some(isAnonymousObjectType) &&
     anonymousObjectRootBranch(type) === undefined
+  );
+}
+
+function isUnsupportedAnonymousArrayRootUnion(
+  type: ts.Type,
+  checker: ts.TypeChecker,
+): boolean {
+  if (!type.isUnion()) return false;
+
+  const activeTypes = type.types.filter(
+    (part) =>
+      !(part.flags & ts.TypeFlags.Null) &&
+      !(part.flags & ts.TypeFlags.Undefined),
+  );
+  return (
+    activeTypes.length > 1 &&
+    activeTypes.some((part) => isArrayContainingAnonymousObject(part, checker))
   );
 }
 
