@@ -389,6 +389,104 @@ function inspectUnresolvedCanonicalDecorators() {
   );
 }
 
+function inspectShadowedResponseTypes(
+  anonymousObjects?: "off" | "safe",
+  rxjsSource: "installed" | "ambient" = "installed",
+) {
+  const projectRoot = createTempProject(tempRoots, {
+    prefix: "specord-shadowed-response-types-",
+  });
+  const srcRoot = path.join(projectRoot, "src");
+
+  fs.writeFileSync(
+    path.join(srcRoot, "shadowed-types.ts"),
+    [
+      "export interface Date { extra: unknown; }",
+      "export interface Promise<T> { payload: T; debug: unknown; }",
+      "export interface Observable<T> { payload: T; debug: unknown; }",
+    ].join("\n"),
+  );
+
+  if (rxjsSource === "installed") {
+    const rxjsRoot = path.join(projectRoot, "node_modules", "rxjs");
+    fs.mkdirSync(rxjsRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(rxjsRoot, "package.json"),
+      JSON.stringify({ name: "rxjs", version: "0.0.0", types: "index.d.ts" }),
+    );
+    fs.writeFileSync(
+      path.join(rxjsRoot, "index.d.ts"),
+      "export interface Observable<T> { subscribe(): T; }",
+    );
+  } else {
+    fs.writeFileSync(
+      path.join(srcRoot, "rxjs.d.ts"),
+      [
+        "declare module 'rxjs' {",
+        "  export interface Observable<T> { payload: T; debug: unknown; }",
+        "}",
+      ].join("\n"),
+    );
+  }
+
+  fs.writeFileSync(
+    path.join(srcRoot, "shadowed-types.controller.ts"),
+    [
+      "import type { Date, Promise, Observable } from './shadowed-types';",
+      "declare function Controller(path?: string): ClassDecorator;",
+      "declare function Get(path?: string): MethodDecorator;",
+      "@Controller('shadowed-types')",
+      "class ShadowedTypeController {",
+      "  @Get('date')",
+      "  shadowedDate(): { when: Date } {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('promise-annotated')",
+      "  promiseAnnotated(): Promise<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('observable-annotated')",
+      "  observableAnnotated(): Observable<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "  @Get('promise-inferred')",
+      "  promiseInferred() {",
+      "    return {} as Promise<{ ok: boolean }>;",
+      "  }",
+      "  @Get('observable-inferred')",
+      "  observableInferred() {",
+      "    return {} as Observable<{ ok: boolean }>;",
+      "  }",
+      "}",
+    ].join("\n"),
+  );
+
+  fs.writeFileSync(
+    path.join(srcRoot, "rxjs.controller.ts"),
+    [
+      "import type { Observable } from 'rxjs';",
+      "declare function Controller(path?: string): ClassDecorator;",
+      "declare function Get(path?: string): MethodDecorator;",
+      "@Controller('rxjs')",
+      "class CanonicalObservableController {",
+      "  @Get()",
+      "  get(): Observable<{ ok: boolean }> {",
+      "    throw new Error('not implemented');",
+      "  }",
+      "}",
+    ].join("\n"),
+  );
+
+  return inspect(
+    resolveConfig(
+      { project: path.join(projectRoot, "tsconfig.json"), root: srcRoot },
+      anonymousObjects
+        ? { inference: { responses: { anonymousObjects } } }
+        : undefined,
+    ),
+  );
+}
+
 describe("anonymous response inference", () => {
   it("infers a closed anonymous response object in safe mode", () => {
     const model = inspectAnonymousResponse("safe");
@@ -467,6 +565,59 @@ describe("anonymous response inference", () => {
         ),
       ).toBe(true);
     }
+  });
+
+  it("rejects shadowed Date and response containers in safe mode", () => {
+    const model = inspectShadowedResponseTypes("safe");
+
+    for (const operationId of [
+      "ShadowedTypeController.shadowedDate",
+      "ShadowedTypeController.promiseAnnotated",
+      "ShadowedTypeController.observableAnnotated",
+      "ShadowedTypeController.promiseInferred",
+      "ShadowedTypeController.observableInferred",
+    ]) {
+      const operation = model.operations.find((item) => item.id === operationId);
+      expect(operation?.responses[0]?.inference.status).toBe("unresolved");
+      expect(
+        operation?.diagnostics.some(
+          (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+        ),
+      ).toBe(true);
+    }
+
+    const canonicalObservable = model.operations.find(
+      (item) => item.id === "CanonicalObservableController.get",
+    );
+    expect(canonicalObservable?.responses[0]?.inference.status).toBe("inferred");
+  });
+
+  it("keeps shadowed response containers unresolved by default", () => {
+    const model = inspectShadowedResponseTypes("off");
+
+    for (const operationId of [
+      "ShadowedTypeController.promiseAnnotated",
+      "ShadowedTypeController.observableAnnotated",
+      "ShadowedTypeController.promiseInferred",
+      "ShadowedTypeController.observableInferred",
+    ]) {
+      const operation = model.operations.find((item) => item.id === operationId);
+      expect(operation?.responses[0]?.inference.status).toBe("unresolved");
+    }
+  });
+
+  it("rejects a project-local ambient rxjs Observable in safe mode", () => {
+    const model = inspectShadowedResponseTypes("safe", "ambient");
+    const operation = model.operations.find(
+      (item) => item.id === "CanonicalObservableController.get",
+    );
+
+    expect(operation?.responses[0]?.inference.status).toBe("unresolved");
+    expect(
+      operation?.diagnostics.some(
+        (diagnostic) => diagnostic.code === "EXTRACTOR_UNRESOLVED_RESPONSE",
+      ),
+    ).toBe(true);
   });
 
   it.each([

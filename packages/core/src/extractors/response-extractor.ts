@@ -489,12 +489,26 @@ function inferReturnType(
   discoveredSchemas: Record<string, SchemaModel>,
   options: ResponseExtractionOptions,
 ): InferredReturnType {
-  const resolved = resolveReturnPayloadType(route, checker);
+  const resolved = resolveReturnPayloadType(
+    route,
+    checker,
+    options.inferSafeAnonymousObjects === true,
+  );
   if (!resolved) {
     return {
       schemas: {},
       unresolved: true,
       reason: "No callable signature found",
+    };
+  }
+
+  if (resolved.nonCanonicalContainer) {
+    return {
+      schemas: {},
+      unresolved: true,
+      reason:
+        `Return type uses a non-canonical ${resolved.nonCanonicalContainer} ` +
+        "response container",
     };
   }
 
@@ -661,7 +675,9 @@ function isSafeAnonymousTypeBranch(
     );
   }
 
-  if (schemaNameForType(type) === "Date") return true;
+  if (schemaNameForType(type) === "Date") {
+    return isTypeScriptLibType(type, "Date");
+  }
 
   if (!(type.flags & ts.TypeFlags.Object) || visiting.has(type)) return false;
 
@@ -887,12 +903,24 @@ function schemaRefContainsUnknown(ref: SchemaRef): boolean {
 function resolveReturnPayloadType(
   route: DiscoveredRoute,
   checker: ts.TypeChecker,
-): { type: ts.Type; nameHint?: string } | undefined {
+  requireCanonicalContainers: boolean,
+): {
+  type: ts.Type;
+  nameHint?: string;
+  nonCanonicalContainer?: "Promise" | "Observable";
+} | undefined {
   if (route.node.type) {
-    const payloadTypeNode = unwrapResponseContainerTypeNode(route.node.type);
+    const unwrapped = unwrapResponseContainerTypeNode(
+      route.node.type,
+      checker,
+      requireCanonicalContainers,
+    );
     return {
-      type: checker.getTypeFromTypeNode(payloadTypeNode),
-      nameHint: schemaNameFromTypeNode(payloadTypeNode),
+      type: checker.getTypeFromTypeNode(unwrapped.typeNode),
+      nameHint: schemaNameFromTypeNode(unwrapped.typeNode),
+      ...(unwrapped.nonCanonicalContainer
+        ? { nonCanonicalContainer: unwrapped.nonCanonicalContainer }
+        : {}),
     };
   }
 
@@ -900,36 +928,119 @@ function resolveReturnPayloadType(
   if (!signature) return undefined;
 
   const returnType = checker.getReturnTypeOfSignature(signature);
-  return { type: unwrapResponseContainerType(returnType, checker) };
+  return unwrapResponseContainerType(
+    returnType,
+    checker,
+    requireCanonicalContainers,
+  );
 }
 
-function unwrapResponseContainerTypeNode(typeNode: ts.TypeNode): ts.TypeNode {
+function unwrapResponseContainerTypeNode(
+  typeNode: ts.TypeNode,
+  checker: ts.TypeChecker,
+  requireCanonicalContainers: boolean,
+): {
+  typeNode: ts.TypeNode;
+  nonCanonicalContainer?: "Promise" | "Observable";
+} {
   if (!ts.isTypeReferenceNode(typeNode) || typeNode.typeArguments?.length !== 1) {
-    return typeNode;
+    return { typeNode };
   }
 
   const name = typeNode.typeName.getText();
   if (name !== "Promise" && name !== "Observable") {
-    return typeNode;
+    return { typeNode };
   }
 
-  return unwrapResponseContainerTypeNode(typeNode.typeArguments[0]);
+  if (
+    requireCanonicalContainers &&
+    !isCanonicalResponseContainerType(
+      checker.getTypeFromTypeNode(typeNode),
+      name,
+    )
+  ) {
+    return { typeNode, nonCanonicalContainer: name };
+  }
+
+  return unwrapResponseContainerTypeNode(
+    typeNode.typeArguments[0],
+    checker,
+    requireCanonicalContainers,
+  );
 }
 
 function unwrapResponseContainerType(
   type: ts.Type,
   checker: ts.TypeChecker,
-): ts.Type {
+  requireCanonicalContainers: boolean,
+): {
+  type: ts.Type;
+  nonCanonicalContainer?: "Promise" | "Observable";
+} {
   const symbolName = type.getSymbol()?.getName();
   const typeArguments = getTypeArguments(type, checker);
   if (
     (symbolName === "Promise" || symbolName === "Observable") &&
     typeArguments.length === 1
   ) {
-    return unwrapResponseContainerType(typeArguments[0], checker);
+    if (
+      requireCanonicalContainers &&
+      !isCanonicalResponseContainerType(type, symbolName)
+    ) {
+      return { type, nonCanonicalContainer: symbolName };
+    }
+    return unwrapResponseContainerType(
+      typeArguments[0],
+      checker,
+      requireCanonicalContainers,
+    );
   }
 
-  return type;
+  return { type };
+}
+
+function isCanonicalResponseContainerType(
+  type: ts.Type,
+  name: "Promise" | "Observable",
+): boolean {
+  if (name === "Promise") return isTypeScriptLibType(type, name);
+
+  const symbol = schemaSymbolForType(type);
+  return (
+    symbol?.getName() === name &&
+    symbol.declarations !== undefined &&
+    symbol.declarations.length > 0 &&
+    symbol.declarations.every((declaration) =>
+      declarationComesFromInstalledPackage(declaration, "rxjs"),
+    )
+  );
+}
+
+function isTypeScriptLibType(type: ts.Type, name: string): boolean {
+  const symbol = schemaSymbolForType(type);
+  return (
+    symbol?.getName() === name &&
+    symbol.declarations?.some((declaration) => {
+      const sourceFile = declaration.getSourceFile();
+      return (
+        sourceFile.hasNoDefaultLib &&
+        /^lib(?:\..+)?\.d\.ts$/i.test(path.basename(sourceFile.fileName))
+      );
+    }) === true
+  );
+}
+
+function declarationComesFromInstalledPackage(
+  declaration: ts.Declaration,
+  packageName: string,
+): boolean {
+  const sourcePath = declaration
+    .getSourceFile()
+    .fileName.replaceAll("\\", "/")
+    .toLowerCase();
+  return sourcePath.includes(
+    `/node_modules/${packageName.toLowerCase()}/`,
+  );
 }
 
 function schemaFromType(
